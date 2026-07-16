@@ -644,7 +644,6 @@ export default function App() {
     setParsedProposals(prev => prev.filter(p => p.id !== proposalId));
   };
 
-  /* 💡 [오류 수정 부] 이전 리팩토링 중 소실되어 ReferenceError를 일으킨 창 제어 헬퍼 함수 5종 세트 정밀 복원 완료 */
   const handleToggleAlwaysOnTop = () => {
     const nextState = !isAlwaysOnTop;
     setIsAlwaysOnTop(nextState);
@@ -721,7 +720,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 헤드구역(Header) - 창 이동 드래그 및 컨트롤 전용 구조 유지 */}
+      {/* 헤드구역(Header) */}
       <header className="bg-white border-b border-[#E9E9E6] px-6 py-3 sticky top-0 z-40 shadow-xs window-drag-region flex items-center justify-between">
           {/* 타이틀 및 연동상태 섹션 */}
           <div className="flex items-center gap-4 shrink-0 window-no-drag">
@@ -807,17 +806,23 @@ export default function App() {
       </header>
 
       {/* 메인 레이아웃 구역 */}
-      <main className="max-w-none w-full mx-auto p-4 md:p-6 flex-1 flex flex-col gap-5">
+      <main className="max-w-none w-full mx-auto p-4 md:p-6 flex-1 flex flex-col gap-6">
         
-        {/* 상단 보드 정렬 - 오늘의 한마디와 디데이 위치 상향 조정본 정밀 연동 */}
-        <div className="flex flex-col sm:flex-row gap-4 items-stretch w-full">
-          {/* 오늘의 한마디 패널 */}
-          <div className="flex-1 bg-white border border-[#EAE4F2] shadow-xs rounded-xl px-4 py-3 flex items-center justify-between min-w-0">
+        {/* 
+          💡 [수정 요청 사항 반영 - 상단 패널 비율 조정]
+          하단 본문 레이아웃(4:1 비율)과 폭 및 여백을 완벽하게 동기화하기 위해 grid-cols-5 구조로 통합했습니다.
+          - 오늘의 한마디: xl:col-span-4 (캘린더 너비와 일치)
+          - 디데이 대시보드: xl:col-span-1 (AI 분석기 너비와 일치)
+          - 간격: gap-6 적용
+        */}
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-stretch w-full">
+          {/* 오늘의 한마디 패널 (캘린더와 동일한 4칸 차지) */}
+          <div className="xl:col-span-4 bg-white border border-[#EAE4F2] shadow-xs rounded-xl px-4 py-3 flex items-center justify-between min-w-0">
             <div className="flex items-center gap-3 overflow-hidden flex-1">
               <span className="text-xs font-bold text-[#461146] flex items-center gap-1.5 shrink-0 bg-[#EAE4F2] px-2.5 py-1 rounded-full">
                 <MessageSquare className="w-3.5 h-3.5" /> 오늘의 한마디
               </span>
-              <div className="text-[#37352F] text-xs font-semibold truncate border-l border-gray-200 pl-3 flex-1">
+              <div className="text-[#37352F] text-sm md:text-base font-semibold truncate border-l border-gray-200 pl-3 flex-1">
                 {todayNotice.words && todayNotice.words[activeNoticeIdx] ? todayNotice.words[activeNoticeIdx] : '등록된 한마디가 없습니다.'}
               </div>
             </div>
@@ -833,14 +838,14 @@ export default function App() {
             </div>
           </div>
 
-          {/* 디데이 대시보드 */}
-          <div className="sm:w-72 bg-white border border-rose-200 shadow-xs rounded-xl px-4 py-3 flex items-center justify-between shrink-0">
+          {/* 디데이 대시보드 (AI 분석기와 동일한 1칸 차지) */}
+          <div className="xl:col-span-1 bg-white border border-rose-200 shadow-xs rounded-xl px-4 py-3 flex items-center justify-between min-w-0">
             <div className="flex items-center gap-3 overflow-hidden">
               <span className="p-2 bg-rose-50 rounded-lg text-rose-600 shrink-0"><Pin className="w-3.5 h-3.5" /></span>
               <div className="text-left overflow-hidden">
                 {todayNotice.ddayTarget ? (
                   <p className="text-sm font-bold text-gray-700 truncate">
-                    <span className="font-black text-rose-600 mr-2 text-base">D{calculatedDdayValue}</span>
+                    <span className="font-black text-rose-600 mr-1.5 text-base">D{calculatedDdayValue}</span>
                     {todayNotice.ddayLabel}
                   </p>
                 ) : (
@@ -848,7 +853,7 @@ export default function App() {
                 )}
               </div>
             </div>
-            <button onClick={() => { setDdayForm({ label: todayNotice.ddayLabel || '', date: todayNotice.ddayTarget || new Date().toISOString().split('T')[0] }); setIsDdayEditOpen(true); }} className="text-xs font-bold text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded border border-rose-100 transition-colors">+ 등록</button>
+            <button onClick={() => { setDdayForm({ label: todayNotice.ddayLabel || '', date: todayNotice.ddayTarget || new Date().toISOString().split('T')[0] }); setIsDdayEditOpen(true); }} className="text-xs font-bold text-rose-600 hover:bg-rose-50 px-2.5 py-1.5 rounded border border-rose-100 transition-colors">+ 등록</button>
           </div>
         </div>
 
