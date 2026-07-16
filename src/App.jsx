@@ -27,7 +27,12 @@ import {
   ChevronDown,
   Key,
   Globe,
-  Menu
+  Menu,
+  Minus,
+  Square,
+  Lock,
+  Unlock,
+  Eye
 } from 'lucide-react';
 
 const NOTION_PALETTES = {
@@ -60,7 +65,7 @@ export default function App() {
   });
 
   const [todayNotice, setTodayNotice] = useState({
-    words: ['한마디를 등록해 주세요.'],
+    words: [''], 
     ddayLabel: '',
     ddayTarget: ''
   });
@@ -82,8 +87,8 @@ export default function App() {
   const [selectedEvent, setSelectedEvent] = useState(null);
 
   /* [중앙 공유형 키 시스템 구축] */
-  const [geminiApiKey, setGeminiApiKey] = useState(''); // Firestore 및 로컬에서 공용으로 세팅될 API Key
-  const [tempApiKey, setTempApiKey] = useState(''); // 입력창 제어 임시 키
+  const [geminiApiKey, setGeminiApiKey] = useState(''); 
+  const [tempApiKey, setTempApiKey] = useState(''); 
 
   /* 11대 일정 양식 폼 */
   const [newEvent, setNewEvent] = useState({
@@ -118,7 +123,7 @@ export default function App() {
 
   const [newCategoryName, setNewCategoryName] = useState('');
   const [selectedPaletteKey, setSelectedPaletteKey] = useState('red');
-  const [noticeFormList, setNoticeFormList] = useState(['한마디를 등록해 주세요.']);
+  const [noticeFormList, setNoticeFormList] = useState(['']);
   const [ddayForm, setDdayForm] = useState({ label: '', date: '' });
 
   // 메신저 일정 다중 AI 분석 제안 리스트
@@ -126,8 +131,21 @@ export default function App() {
   const [parsedProposals, setParsedProposals] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  /* AI 카드 내부 카테고리 변경 상태 관리를 위한 임시 상태 */
+  /* AI 카드 내부 카테고리 변경 상태 관리 임시 상태 */
   const [activeProposalCatDropdownId, setActiveProposalCatDropdownId] = useState(null);
+
+  /* 드래그 시작 대상 일정 아이디 보관 상태 */
+  const [draggedEventId, setDraggedEventId] = useState(null);
+
+  /* 창 제어 기능 확장 상태관리 */
+  const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
+  const [isMoveLocked, setIsMovelocked] = useState(false);
+  const [opacityValue, setOpacityValue] = useState(1.0);
+  const [isOpacityDropdownOpen, setIsOpacityDropdownOpen] = useState(false);
+
+  /* 상단 헤더 컴포넌트 렌더링에 필요한 날짜 관련 상수 */
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
 
   const showToast = (message, type = 'info') => {
     setToast({ show: true, message, type });
@@ -175,7 +193,7 @@ export default function App() {
               applyMethod: '가정통신문 회신',
               applyCount: '전체 교직원 및 학부모',
               memo: '체육관 무대 세팅 및 인쇄물 사전 검토 필요',
-              dayOrder: {} /* [스팩 반영] 날짜별 순서를 기록할 dayOrder 객체 초기 세팅 */
+              sourceOrder: 0
             }
           ];
           setEvents(defaultEvents);
@@ -194,6 +212,7 @@ export default function App() {
       snapshot.forEach((doc) => {
         items.push({ id: doc.id, ...doc.data() });
       });
+      items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       setEvents(items);
     }, (error) => {
       console.error("Firestore loading error:", error);
@@ -227,7 +246,7 @@ export default function App() {
         } else if (rawData.word) {
           words = [rawData.word];
         } else {
-          words = ['한마디를 등록해 주세요.'];
+          words = [''];
         }
         setTodayNotice({
           ...rawData,
@@ -283,16 +302,15 @@ export default function App() {
     return () => clearInterval(interval);
   }, [todayNotice.words]);
 
-  /* 
-    [변경 사항 - 핵심 스펙 구현] SortableJS 라이브러리 스크립트 로드 및 인스턴스 생성 프로세스 
-    - 캘린더 화면이 리렌더링되거나 currentDate가 변경되어 날짜 엘리먼트들이 새롭게 매핑될 때, 
-      각 날짜 컨테이너 박스(.day-events-container)를 찾아 Sortable.create()를 수동 인스턴스화하여 바인딩합니다.
-  */
+  const extractHexColor = (themeText) => {
+    if (!themeText) return '#37352F';
+    const match = themeText.match(/\[(.*?)\]/);
+    return match ? match[1] : '#37352F';
+  };
+
   useEffect(() => {
     const initSortable = () => {
       if (typeof window === 'undefined') return;
-      
-      // window.Sortable 인스턴스가 로드되어 있는지 체크하고 없다면 주입 대기
       if (!window.Sortable) {
         const script = document.createElement('script');
         script.src = "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js";
@@ -307,34 +325,29 @@ export default function App() {
     const bindSortableContainers = () => {
       const containers = document.querySelectorAll('.day-events-container');
       containers.forEach(container => {
-        // 중복 바인딩 방지를 위해 기존 Sortable 인스턴스 파괴 후 재수립
         if (container && window.Sortable) {
           const oldSortable = window.Sortable.get(container);
           if (oldSortable) oldSortable.destroy();
 
           window.Sortable.create(container, {
-            group: 'shared-day-group', // 날짜 내부 정렬
+            group: 'shared-day-group',
             animation: 150,
-            handle: '.drag-handle', // 요구사항 스펙: 드래그 핸들 전용 클래스 매핑
-            ghostClass: 'sortable-ghost', // 요구사항 스펙: 드래그 중인 임시 카드 클래스명
-            chosenClass: 'sortable-chosen', // 요구사항 스펙: 선택된 카드 클래스명
+            handle: '.drag-handle',
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
             onEnd: async (evt) => {
-              const targetContainer = evt.to; // 드래그가 끝난 날짜 박스
+              const targetContainer = evt.to;
               const targetDate = targetContainer.getAttribute('data-date');
               if (!targetDate) return;
 
-              // 가. 날짜 박스 내부에 실시간으로 배치된 모든 일정 카드의 ID 배열을 돔에서 직접 추출
               const cardElements = targetContainer.querySelectorAll('.event-card');
               const reorderedIds = Array.from(cardElements).map(el => el.getAttribute('data-id'));
 
-              // 나. 리액트 상부 상태(events)를 돌며, 새롭게 변경된 ID 배열의 인덱스를 dayOrder[targetDate] 에 강제 반영
               setEvents(prevEvents => {
                 const updated = prevEvents.map(ev => {
                   if (reorderedIds.includes(ev.id)) {
                     const newIndex = reorderedIds.indexOf(ev.id);
                     const freshDayOrder = { ...(ev.dayOrder || {}), [targetDate]: newIndex };
-                    
-                    // 다. 스펙 요구에 따라 변경 데이터를 동시 저장하는 통합 처리 진행
                     saveSingleEventData(ev.id, { ...ev, dayOrder: freshDayOrder });
                     return { ...ev, dayOrder: freshDayOrder };
                   }
@@ -348,7 +361,6 @@ export default function App() {
       });
     };
 
-    // 데이터가 완전히 동기화되어 채워진 직후 바인딩을 정밀 실행
     if (events.length > 0) {
       setTimeout(() => {
         initSortable();
@@ -356,17 +368,15 @@ export default function App() {
     }
   }, [events, currentDate]);
 
-  /* [변경 사항] 드래그 연산 처리 후 서버/로컬 스토리지에 데이터를 전사하는 영속성 유틸 메소드 */
   const saveSingleEventData = async (eventId, fullPayload) => {
     if (syncStatus === 'connected' && db) {
       try {
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', eventId);
         await setDoc(docRef, fullPayload, { merge: true });
       } catch (err) {
-        console.error("Firestore order update fail fallback to local:", err);
+        console.error("Firestore order update fail:", err);
       }
     }
-    // 항상 로컬 스토리지에도 스펙 요구대로 저장 처리 지속
     const savedEvents = localStorage.getItem('local_school_events');
     if (savedEvents) {
       const arr = JSON.parse(savedEvents);
@@ -382,7 +392,7 @@ export default function App() {
 
   const handleUpdateNotice = async () => {
     const cleanWords = noticeFormList.map(w => w.trim()).filter(Boolean);
-    const finalWords = cleanWords.length > 0 ? cleanWords : ['등록된 한마디가 없습니다.'];
+    const finalWords = cleanWords.length > 0 ? cleanWords : [''];
     const updated = { ...todayNotice, words: finalWords };
     setTodayNotice(updated);
     setActiveNoticeIdx(0);
@@ -451,171 +461,27 @@ export default function App() {
     }
   };
 
-  const filteredEvents = useMemo(() => {
-    return events.filter(event => {
-      if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(event.category)) {
-        return false;
-      }
-      return true;
-    });
-  }, [events, activeCategoryFilters]);
-
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
-
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDayIndex = new Date(year, month, 1).getDay();
-  const prevDaysInMonth = new Date(year, month, 0).getDate();
-
-  const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
-  const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
-  const handleToday = () => {
-    setCurrentDate(new Date());
-    setSelectedDate(new Date());
+  const handleSaveApiKeyToLocal = () => {
+    localStorage.setItem('user_gemini_api_key', tempApiKey.trim());
+    setGeminiApiKey(tempApiKey.trim());
+    showToast("개인 컴퓨터용 로컬 세션에 키가 임시 등록되었습니다.", "success");
   };
 
-  const formatDateString = (y, m, d) => {
-    const mm = String(m + 1).padStart(2, '0');
-    const dd = String(d).padStart(2, '0');
-    return `${y}-${mm}-${dd}`;
-  };
-
-  const calculatedDdayValue = useMemo(() => {
-    if (!todayNotice.ddayTarget) return '';
-    const target = new Date(todayNotice.ddayTarget);
-    if (isNaN(target.getTime())) return '';
-    target.setHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diffTime = target.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return 'Day';
-    if (diffDays > 0) return `-${diffDays}`;
-    return `+${Math.abs(diffDays)}`;
-  }, [todayNotice.ddayTarget]);
-
-  const handleAddEventSubmit = async (e) => {
-    if (e) e.preventDefault();
-    if (!newEvent.title.trim()) return showToast("일정 제목을 입력해 주세요.", "error");
-    if (!newEvent.startDate) return showToast("시작일을 선택해 주세요.", "error");
-
-    if (newEvent.manager.trim()) {
-      localStorage.setItem('school_calendar_manager', newEvent.manager);
-    }
-
-    const payload = {
-      title: newEvent.title.trim(),
-      category: newEvent.category,
-      manager: newEvent.manager.trim() || '익명 교사',
-      startDate: newEvent.startDate,
-      endDate: newEvent.endDate || newEvent.startDate,
-      startTime: newEvent.startTime.trim(),
-      endTime: newEvent.endTime.trim(),
-      location: newEvent.location.trim(),
-      applyMethod: newEvent.applyMethod.trim(),
-      applyCount: newEvent.applyCount.trim(),
-      memo: newEvent.memo.trim(),
-      createdAt: new Date().toISOString(),
-      dayOrder: {} // 초기 공백 인덱스 구조 할당
-    };
-
+  const handleShareApiKeyToFirestore = async () => {
+    if (!tempApiKey.trim()) return showToast("등록할 API Key를 입력하세요.", "error");
+    
     if (syncStatus === 'connected' && db) {
       try {
-        const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'events'));
-        await setDoc(docRef, payload);
-        showToast("일정이 연동 및 공유되었습니다.", "success");
+        const geminiDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'gemini');
+        await setDoc(geminiDocRef, { apiKey: tempApiKey.trim() }, { merge: true });
+        setGeminiApiKey(tempApiKey.trim());
+        showToast("모든 선생님이 공유하여 바로 사용하도록 저장 완료되었습니다! 🎉", "success");
       } catch (err) {
-        console.error("Firebase write error:", err);
-        saveLocalEvent(payload);
+        console.error("API Key sharing error:", err);
+        showToast("파이어베이스 권한 혹은 오류로 실패했습니다.", "error");
       }
     } else {
-      saveLocalEvent({ ...payload, id: crypto.randomUUID() });
-    }
-
-    setIsAddModalOpen(false);
-    setNewEvent({
-      title: '',
-      category: Object.keys(categories)[0] || '기타',
-      manager: localStorage.getItem('school_calendar_manager') || '',
-      startDate: '',
-      endDate: '',
-      startTime: '',
-      endTime: '',
-      location: '',
-      applyMethod: '',
-      applyCount: '',
-      memo: ''
-    });
-  };
-
-  const saveLocalEvent = (payload) => {
-    const updated = [...events, payload];
-    setEvents(updated);
-    localStorage.setItem('local_school_events', JSON.stringify(updated));
-    showToast("로컬 브라우저 가상 보관소에 기록되었습니다.", "success");
-  };
-
-  const handleUpdateEvent = async () => {
-    if (!editEventForm.title.trim()) return showToast("제목을 입력해 주세요.", "error");
-    if (!editEventForm.startDate) return showToast("시작일을 선택해 주세요.", "error");
-
-    const payload = {
-      title: editEventForm.title.trim(),
-      category: editEventForm.category,
-      manager: editEventForm.manager.trim() || '익명 교사',
-      startDate: editEventForm.startDate,
-      endDate: editEventForm.endDate || editEventForm.startDate,
-      startTime: editEventForm.startTime.trim(),
-      endTime: editEventForm.endTime.trim(),
-      location: editEventForm.location.trim(),
-      applyMethod: editEventForm.applyMethod.trim(),
-      applyCount: editEventForm.applyCount.trim(),
-      memo: editEventForm.memo.trim()
-    };
-
-    if (syncStatus === 'connected' && db) {
-      try {
-        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', editEventForm.id);
-        await setDoc(docRef, payload, { merge: true });
-        showToast("일정 수정 사항이 정상 반영되었습니다.", "success");
-      } catch (err) {
-        console.error("Firebase update error:", err);
-      }
-    } else {
-      const updated = events.map(ev => ev.id === editEventForm.id ? { ...ev, ...payload } : ev);
-      setEvents(updated);
-      localStorage.setItem('local_school_events', JSON.stringify(updated));
-      showToast("수정 완료되었습니다.", "success");
-    }
-    setIsEditing(false);
-    setIsDetailModalOpen(false);
-    setSelectedEvent(null);
-  };
-
-  const handleDeleteEvent = async (eventId) => {
-    if (syncStatus === 'connected' && db) {
-      try {
-        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', eventId);
-        await deleteDoc(docRef);
-        showToast("일정이 삭제되었습니다.", "success");
-      } catch (err) {
-        console.error("Firebase delete error:", err);
-      }
-    } else {
-      const updated = events.filter(ev => ev.id !== eventId);
-      setEvents(updated);
-      localStorage.setItem('local_school_events', JSON.stringify(updated));
-      showToast("일정이 삭제되었습니다.", "success");
-    }
-    setIsDetailModalOpen(false);
-    setSelectedEvent(null);
-  };
-
-  const toggleCategoryFilter = (cat) => {
-    if (activeCategoryFilters.includes(cat)) {
-      setActiveCategoryFilters(activeCategoryFilters.filter(c => c !== cat));
-    } else {
-      setActiveCategoryFilters([...activeCategoryFilters, cat]);
+      showToast("연결 상태가 실시간 모드가 아닙니다. 공유가 불가능합니다.", "error");
     }
   };
 
@@ -778,17 +644,71 @@ export default function App() {
     setParsedProposals(prev => prev.filter(p => p.id !== proposalId));
   };
 
+  /* 💡 [오류 수정 부] 이전 리팩토링 중 소실되어 ReferenceError를 일으킨 창 제어 헬퍼 함수 5종 세트 정밀 복원 완료 */
+  const handleToggleAlwaysOnTop = () => {
+    const nextState = !isAlwaysOnTop;
+    setIsAlwaysOnTop(nextState);
+    if (window.electronAPI) {
+      window.electronAPI.setAlwaysOnTop(nextState);
+      showToast(nextState ? "항상 위에 고정되었습니다." : "항상 위 고정이 해제되었습니다.", "info");
+    }
+  };
+
+  const handleToggleMoveLock = () => {
+    const nextState = !isMoveLocked;
+    setIsMovelocked(nextState);
+    if (window.electronAPI) {
+      window.electronAPI.setMovable(!nextState);
+      showToast(nextState ? "프로그램 창 이동이 잠겼습니다." : "프로그램 창 이동 제한이 풀렸습니다.", "info");
+    }
+  };
+
+  const handleOpacityChange = (value) => {
+    setOpacityValue(value);
+    if (window.electronAPI) {
+      window.electronAPI.setOpacity(value);
+    }
+  };
+
+  const handleMinimize = () => window.electronAPI && window.electronAPI.minimize();
+  const handleMaximize = () => window.electronAPI && window.electronAPI.maximize();
+  const handleClose = () => window.electronAPI && window.electronAPI.close();
+
+  const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+  const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+  const handleToday = () => {
+    setCurrentDate(new Date());
+    setSelectedDate(new Date());
+  };
+
+  const formatDateString = (y, m, d) => {
+    const mm = String(m + 1).padStart(2, '0');
+    const dd = String(d).padStart(2, '0');
+    return `${y}-${mm}-${dd}`;
+  };
+
+  const filteredEvents = useMemo(() => {
+    return events.filter(event => {
+      if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(event.category)) {
+        return false;
+      }
+      return true;
+    });
+  }, [events, activeCategoryFilters]);
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayIndex = new Date(year, month, 1).getDay();
+  const prevDaysInMonth = new Date(year, month, 0).getDate();
+
   return (
-    <div className="min-h-screen bg-[#F7F7F5] text-[#37352F] font-sans antialiased flex flex-col">
-      {/* 
-        [스타일 스팩 반영] 스펙 문서에서 명시한 드래그 활성 상태/고스트 요소에 대한 스타일 커스텀 주입 코드
-        Tailwind에 존재하지 않는 임의 글로벌 전역 가상 시각 피드백 스타일 선언
-      */}
+    <div className="min-h-screen bg-[#F7F7F5] text-[#37352F] font-sans antialiased flex flex-col select-none">
       <style dangerouslySetInnerHTML={{__html: `
         .sortable-ghost { opacity: 0.35 !important; }
         .sortable-chosen { transform: scale(1.02) !important; box-shadow: 0 6px 18px rgba(0,0,0,0.2) !important; transition: transform 0.1s ease; }
         .drag-handle { cursor: grab; opacity: 0.55; font-weight: 700; padding: 0 4px; }
         .drag-handle:active { cursor: grabbing !important; }
+        .window-drag-region { -webkit-app-region: drag; }
+        .window-no-drag { -webkit-app-region: no-drag; }
       `}} />
 
       {/* Toast Alert */}
@@ -801,90 +721,138 @@ export default function App() {
         </div>
       )}
 
-      {/* 헤드구역(Header) - 오늘의 한마디와 디데이 내포 */}
-      <header className="bg-white border-b border-[#E9E9E6] px-6 py-4 sticky top-0 z-40 shadow-xs">
-        <div className="max-w-none w-full mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          
+      {/* 헤드구역(Header) - 창 이동 드래그 및 컨트롤 전용 구조 유지 */}
+      <header className="bg-white border-b border-[#E9E9E6] px-6 py-3 sticky top-0 z-40 shadow-xs window-drag-region flex items-center justify-between">
           {/* 타이틀 및 연동상태 섹션 */}
-          <div className="flex items-center justify-between lg:justify-start gap-4 shrink-0">
+          <div className="flex items-center gap-4 shrink-0 window-no-drag">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-[#F7F7F5] border border-[#E9E9E6] rounded-md">
-                <CalendarIcon className="w-6 h-6 text-[#37352F]" />
+                <CalendarIcon className="w-5 h-5 text-[#37352F]" />
               </div>
               <div>
-                <h1 className="text-lg font-bold flex items-center gap-2">교무실 공유 캘린더</h1>
-                <p className="text-xs text-gray-500">2026년 솔내고 2학년실</p>
+                <h1 className="text-base font-black flex items-center gap-2">교무실 공유 캘린더</h1>
+                <p className="text-[11px] text-gray-500 font-medium">2026년 솔내고 2학년실</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 text-xs bg-[#F7F7F5] border border-[#E9E9E6] px-3 py-1.5 rounded-full font-medium ml-2">
+            <div className="flex items-center gap-2 text-xs bg-[#F7F7F5] border border-[#E9E9E6] px-3 py-1.5 rounded-full font-medium">
               {syncStatus === 'connected' ? (
                 <>
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
                   <span className="text-emerald-700 font-semibold">실시간 연동중</span>
-                </>
-              ) : syncStatus === 'connecting' ? (
-                <>
-                  <span className="w-2 h-2 rounded-full bg-amber-500 inline-block animate-pulse"></span>
-                  <span className="text-amber-700">연결중</span>
                 </>
               ) : (
                 <>
-                  <span className="w-2 h-2 rounded-full bg-gray-400 inline-block"></span>
-                  <span className="text-gray-600">오프라인</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span>
+                  <span className="text-gray-600">오프라인 모드</span>
                 </>
               )}
             </div>
           </div>
 
-          {/* 오늘의 한마디 & 디데이 융합 패널 */}
-          <div className="flex-1 flex flex-col sm:flex-row gap-3 items-stretch min-w-0">
-            {/* 오늘의 한마디 */}
-            <div className="flex-1 bg-[#FBFBFA] border border-[#EAE4F2] rounded-xl px-3.5 py-1.5 flex items-center justify-between min-w-0">
-              <div className="flex items-center gap-2 overflow-hidden flex-1">
-                <span className="text-xs font-bold text-[#461146] flex items-center gap-1 shrink-0 bg-[#EAE4F2] px-2.5 py-0.5 rounded-full">
-                  <MessageSquare className="w-3.5 h-3.5" /> 한마디
-                </span>
-                <div className="text-[#37352F] text-xs font-semibold truncate border-l border-gray-200 pl-3 flex-1">
-                  {todayNotice.words && todayNotice.words[activeNoticeIdx]}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0 pl-2">
-                {todayNotice.words && todayNotice.words.length > 1 && (
-                  <div className="flex items-center gap-1 bg-white border border-gray-100 rounded px-1.5 py-0.5 text-[10px] text-gray-500">
-                    <button onClick={() => setActiveNoticeIdx(prev => (prev - 1 + todayNotice.words.length) % todayNotice.words.length)} className="hover:text-purple-700"><ChevronLeft className="w-3.5 h-3.5" /></button>
-                    <span className="tabular-nums">{activeNoticeIdx + 1}/{todayNotice.words.length}</span>
-                    <button onClick={() => setActiveNoticeIdx(prev => (prev + 1) % todayNotice.words.length)} className="hover:text-purple-700"><ChevronRight className="w-3.5 h-3.5" /></button>
+          {/* 윈도우 컨트롤 제어반 */}
+          <div className="flex items-center gap-1 shrink-0 window-no-drag">
+            <button 
+              type="button" onClick={handleToggleAlwaysOnTop}
+              title={isAlwaysOnTop ? "항상 위 고정 해제" : "항상 위 고정"}
+              className={`p-1.5 rounded-md transition-colors ${isAlwaysOnTop ? 'bg-rose-50 text-rose-600 font-bold' : 'text-gray-500 hover:bg-gray-100'}`}
+            >
+              <Pin className={`w-4 h-4 ${isAlwaysOnTop ? 'rotate-45 fill-current' : ''}`} />
+            </button>
+
+            <button 
+              type="button" onClick={handleToggleMoveLock}
+              title={isMoveLocked ? "창 이동 잠금 해제" : "창 이동 잠금"}
+              className={`p-1.5 rounded-md transition-colors ${isMoveLocked ? 'bg-amber-50 text-amber-600 font-bold' : 'text-gray-500 hover:bg-gray-100'}`}
+            >
+              {isMoveLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+            </button>
+
+            <div className="relative">
+              <button 
+                type="button" onClick={() => setIsOpacityDropdownOpen(!isOpacityDropdownOpen)}
+                title="창 투명도 설정"
+                className={`p-1.5 rounded-md transition-colors ${opacityValue < 1.0 ? 'bg-purple-50 text-purple-700 font-bold' : 'text-gray-500 hover:bg-gray-100'}`}
+              >
+                <Eye className="w-4 h-4" />
+              </button>
+              {isOpacityDropdownOpen && (
+                <div className="absolute right-0 mt-2 bg-white border border-[#E9E9E6] p-3 rounded-lg shadow-xl z-50 w-44 flex flex-col gap-1.5 animate-in fade-in duration-100">
+                  <div className="flex justify-between text-[11px] font-bold text-gray-500">
+                    <span>투명도 조절</span>
+                    <span>{Math.round(opacityValue * 100)}%</span>
                   </div>
-                )}
-                <button onClick={() => { setNoticeFormList(todayNotice.words || ['한마디를 등록해 주세요.']); setIsNoticeEditOpen(true); }} className="text-[11px] font-bold text-purple-700 hover:bg-purple-50 transition px-2 py-1 rounded border border-purple-100">+ 등록</button>
-              </div>
+                  <input 
+                    type="range" min="0.2" max="1.0" step="0.05"
+                    value={opacityValue}
+                    onChange={(e) => handleOpacityChange(e.target.value)}
+                    className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-700"
+                  />
+                  <button 
+                    onClick={() => setIsOpacityDropdownOpen(false)}
+                    className="mt-1 text-[10px] text-center bg-gray-100 text-gray-600 py-1 rounded font-bold hover:bg-gray-200"
+                  >
+                    설정 완료
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* 디데이 */}
-            <div className="sm:w-64 bg-[#FBFBFA] border border-rose-200 rounded-xl px-3.5 py-1.5 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2 overflow-hidden">
-                <span className="p-1.5 bg-rose-50 rounded text-rose-600 shrink-0"><Pin className="w-3.5 h-3.5" /></span>
-                <div className="text-left overflow-hidden">
-                  {todayNotice.ddayTarget ? (
-                    <p className="text-xs font-bold text-gray-700 truncate">
-                      <span className="font-black text-rose-600 mr-1.5">D{calculatedDdayValue}</span>
-                      {todayNotice.ddayLabel || '디데이 일자'}
-                    </p>
-                  ) : (
-                    <p className="text-xs font-bold text-gray-400">설정된 디데이 없음</p>
-                  )}
-                </div>
+            <div className="w-px h-4 bg-gray-300 mx-1"></div>
+
+            <button onClick={handleMinimize} title="최소화" className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-800 rounded-md"><Minus className="w-3.5 h-3.5" /></button>
+            <button onClick={handleMaximize} title="최대화" className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-800 rounded-md"><Square className="w-3 h-3" /></button>
+            <button onClick={handleClose} title="닫기" className="p-1.5 text-gray-400 hover:bg-rose-50 hover:text-rose-600 rounded-md"><X className="w-3.5 h-3.5" /></button>
+          </div>
+      </header>
+
+      {/* 메인 레이아웃 구역 */}
+      <main className="max-w-none w-full mx-auto p-4 md:p-6 flex-1 flex flex-col gap-5">
+        
+        {/* 상단 보드 정렬 - 오늘의 한마디와 디데이 위치 상향 조정본 정밀 연동 */}
+        <div className="flex flex-col sm:flex-row gap-4 items-stretch w-full">
+          {/* 오늘의 한마디 패널 */}
+          <div className="flex-1 bg-white border border-[#EAE4F2] shadow-xs rounded-xl px-4 py-3 flex items-center justify-between min-w-0">
+            <div className="flex items-center gap-3 overflow-hidden flex-1">
+              <span className="text-xs font-bold text-[#461146] flex items-center gap-1.5 shrink-0 bg-[#EAE4F2] px-2.5 py-1 rounded-full">
+                <MessageSquare className="w-3.5 h-3.5" /> 오늘의 한마디
+              </span>
+              <div className="text-[#37352F] text-xs font-semibold truncate border-l border-gray-200 pl-3 flex-1">
+                {todayNotice.words && todayNotice.words[activeNoticeIdx] ? todayNotice.words[activeNoticeIdx] : '등록된 한마디가 없습니다.'}
               </div>
-              <button onClick={() => { setDdayForm({ label: todayNotice.ddayLabel || '', date: todayNotice.ddayTarget || new Date().toISOString().split('T')[0] }); setIsDdayEditOpen(true); }} className="text-[11px] font-bold text-rose-600 hover:bg-rose-50 transition px-2 py-1 rounded border border-rose-100">+ 등록</button>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 pl-2">
+              {todayNotice.words && todayNotice.words.filter(Boolean).length > 1 && (
+                <div className="flex items-center gap-1 bg-white border border-gray-100 rounded px-1.5 py-0.5 text-[10px] text-gray-500 font-bold">
+                  <button onClick={() => setActiveNoticeIdx(prev => (prev - 1 + todayNotice.words.length) % todayNotice.words.length)} className="hover:text-purple-700"><ChevronLeft className="w-3.5 h-3.5" /></button>
+                  <span className="tabular-nums">{activeNoticeIdx + 1}/{todayNotice.words.length}</span>
+                  <button onClick={() => setActiveNoticeIdx(prev => (prev + 1) % todayNotice.words.length)} className="hover:text-purple-700"><ChevronRight className="w-3.5 h-3.5" /></button>
+                </div>
+              )}
+              <button onClick={() => { setNoticeFormList(todayNotice.words || ['']); setIsNoticeEditOpen(true); }} className="text-xs font-bold text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded border border-purple-100 transition-colors">+ 등록</button>
             </div>
           </div>
 
+          {/* 디데이 대시보드 */}
+          <div className="sm:w-72 bg-white border border-rose-200 shadow-xs rounded-xl px-4 py-3 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <span className="p-2 bg-rose-50 rounded-lg text-rose-600 shrink-0"><Pin className="w-3.5 h-3.5" /></span>
+              <div className="text-left overflow-hidden">
+                {todayNotice.ddayTarget ? (
+                  <p className="text-sm font-bold text-gray-700 truncate">
+                    <span className="font-black text-rose-600 mr-2 text-base">D{calculatedDdayValue}</span>
+                    {todayNotice.ddayLabel}
+                  </p>
+                ) : (
+                  <p className="text-xs font-bold text-gray-400">설정된 디데이 없음</p>
+                )}
+              </div>
+            </div>
+            <button onClick={() => { setDdayForm({ label: todayNotice.ddayLabel || '', date: todayNotice.ddayTarget || new Date().toISOString().split('T')[0] }); setIsDdayEditOpen(true); }} className="text-xs font-bold text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded border border-rose-100 transition-colors">+ 등록</button>
+          </div>
         </div>
-      </header>
 
-      {/* 캘린더 및 AI 분석기 메인 그리드 */}
-      <main className="max-w-none w-full mx-auto p-4 md:p-6 flex-1 flex flex-col gap-6">
+        {/* 캘린더 메인 바디와 AI 분석기 그리드 */}
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start flex-1">
           
           {/* 달력 영역 (4/5 영역) */}
@@ -926,7 +894,6 @@ export default function App() {
                 const dayNum = idx + 1;
                 const dateStr = formatDateString(year, month, dayNum);
                 
-                // [변경 사항 - 핵심 스펙 반영] 일정을 그릴 때, 해당 일의 일정들을 dayOrder[date] 순서로 정렬하여 출력
                 const dayEvents = filteredEvents
                   .filter(event => dateStr >= event.startDate && dateStr <= (event.endDate || event.startDate))
                   .sort((a, b) => {
@@ -957,22 +924,22 @@ export default function App() {
                       <button onClick={(e) => { e.stopPropagation(); setNewEvent(prev => ({ ...prev, startDate: dateStr, endDate: dateStr })); setIsAddModalOpen(true); }} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-200 rounded transition"><Plus className="w-3.5 h-3.5 text-gray-500" /></button>
                     </div>
 
-                    {/* [변경 사항 - 핵심 스펙 반영] 각 날짜 박스(.day-events-container) 내부 구역 확보 및 data-date 연동 */}
                     <div 
                       data-date={dateStr}
                       className="day-events-container mt-1 flex-1 overflow-y-auto space-y-1 max-h-28 scrollbar-none min-w-0 pb-1"
                     >
                       {dayEvents.map(event => {
                         const theme = categories[event.category] || categories['기타'] || NOTION_PALETTES.gray;
+                        const textColor = extractHexColor(theme.text);
                         return (
                           <div
                             key={event.id}
-                            data-id={event.id} // SortableJS 순서 추적용 식별자 바인딩
+                            data-id={event.id}
                             onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); setIsDetailModalOpen(true); }}
-                            className="event-card text-xs leading-normal px-2 py-1 rounded border shadow-[0_1px_1px_rgba(0,0,0,0.02)] bg-white hover:opacity-90 font-semibold break-keep whitespace-normal flex items-center justify-between gap-1 transition-all"
+                            className="event-card text-xs leading-normal px-2 py-1 rounded border shadow-[0_1px_1px_rgba(0,0,0,0.02)] font-semibold break-keep whitespace-normal flex items-center justify-between gap-1 transition-all"
                             style={{
-                              backgroundColor: theme.color || '#F7F7F5',
-                              color: theme.text.includes('[#') ? theme.text.match(/\[(.*?)\]/)[1] : '#37352F',
+                              backgroundColor: theme.color || '#EAE4F2',
+                              color: textColor,
                               borderColor: theme.color || '#E3E2E0'
                             }}
                             title={event.title}
@@ -981,12 +948,7 @@ export default function App() {
                               {event.startDate !== event.endDate && <CalendarDays className="w-3 h-3 shrink-0 opacity-70 mt-0.5" />}
                               <span className="truncate flex-1">{event.title}</span>
                             </div>
-                            
-                            {/* [변경 사항 - 핵심 스펙 반영] 각 일정 카드 내부에 드래그 핸들 아이콘(span.drag-handle) 배치 */}
-                            <span 
-                              className="drag-handle text-gray-400 hover:text-gray-800 transition-colors pl-1"
-                              onClick={(e) => e.stopPropagation()} // 드래그 핸들 클릭 시 모달 팝업 차단
-                            >
+                            <span className="drag-handle text-gray-400 hover:text-gray-800 transition-colors pl-1" onClick={(e) => e.stopPropagation()}>
                               <Menu className="w-3 h-3 shrink-0" />
                             </span>
                           </div>
@@ -1023,9 +985,7 @@ export default function App() {
                   className="w-full p-2.5 border border-[#E9E9E6] rounded-lg bg-[#F7F7F5]/50 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400 placeholder:text-gray-400 leading-relaxed"
                 />
                 <button
-                  type="button"
-                  onClick={handleAnalyzeMessengerText}
-                  disabled={isAnalyzing}
+                  type="button" onClick={handleAnalyzeMessengerText}
                   className="w-full py-2 bg-purple-700 hover:bg-purple-800 disabled:bg-purple-400 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   {isAnalyzing ? (
@@ -1038,7 +998,7 @@ export default function App() {
 
               {parsedProposals.length > 0 && (
                 <div className="space-y-3.5 mt-2 animate-in fade-in duration-300">
-                  <div className="flex items-center justify-between border-b border-dashed border-gray-100 pb-1.5">
+                  <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-1.5">
                     <p className="text-[10px] font-bold text-purple-700 uppercase">분석 일정 ({parsedProposals.length}건)</p>
                     <button onClick={() => setParsedProposals([])} className="text-[10px] text-gray-400 hover:text-gray-600 underline">비우기</button>
                   </div>
@@ -1345,7 +1305,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-lg font-extrabold text-[#37352F] leading-snug break-all whitespace-normal">{selectedEvent.title}</h3>
+                  <h3 className="text-lg font-extrabold text-[#37352F] tracking-tight leading-snug break-all whitespace-normal">{selectedEvent.title}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600 bg-[#F7F7F5] p-4 rounded-lg border border-[#E9E9E6]">
                     <div className="flex items-center gap-2"><User className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">담당 교사</span> <span className="text-[#37352F] font-medium">{selectedEvent.manager || '-'}</span></div>
                     <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">시간 구성</span> <span className="text-[#37352F] font-medium">{selectedEvent.startTime || selectedEvent.endTime ? `${selectedEvent.startTime || '미정'} ~ ${selectedEvent.endTime || '미정'}` : '-'}</span></div>
@@ -1494,9 +1454,11 @@ export default function App() {
                 <div key={idx} className="flex gap-2 items-center">
                   <span className="text-xs text-purple-600 font-bold w-5 shrink-0 tabular-nums">{idx + 1}.</span>
                   <input
-                    type="text" placeholder="교무실 한마디 문구 입력" value={notice}
+                    type="text" 
+                    placeholder="등록할 오늘의 한마디 내용을 기입하세요 (클릭하면 이 안내가 사라집니다.)" 
+                    value={notice}
                     onChange={(e) => { const copy = [...noticeFormList]; copy[idx] = e.target.value; setNoticeFormList(copy); }}
-                    className="flex-1 p-2 border border-[#E9E9E6] rounded bg-[#F7F7F5] text-xs focus:outline-none"
+                    className="flex-1 p-2 border border-[#E9E9E6] rounded bg-[#F7F7F5] text-xs focus:outline-none focus:bg-white transition-all"
                   />
                   {noticeFormList.length > 1 && (
                     <button type="button" onClick={() => setNoticeFormList(noticeFormList.filter((_, i) => i !== idx))} className="p-1.5 text-gray-400 hover:text-rose-600 rounded">

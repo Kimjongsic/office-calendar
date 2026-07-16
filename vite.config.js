@@ -7,4 +7,5 @@ export default defineConfig({
     react(),
     tailwindcss(), // <-- 빌드 파이프라인에 주입
   ],
+  base: './',
 })
