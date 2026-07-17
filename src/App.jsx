@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db, initAnonymousAuth } from './firebase'; // 3단계 파이어베이스 인스턴스 사용
+import { db, initAnonymousAuth } from './firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import {
   Calendar as CalendarIcon,
@@ -46,11 +46,26 @@ const NOTION_PALETTES = {
   gray: { bg: 'bg-[#E3E2E0]', text: 'text-[#37352F]', border: 'border-[#E3E2E0]', color: '#E3E2E0', label: '연한 회색' }
 };
 
+const extractHexColor = (className) => {
+  const match = className.match(/#([A-Fa-f0-9]{6})/);
+  return match ? match[0] : '#37352F';
+};
+
 export default function App() {
   const appId = 'notion-school-calendar';
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const formatDateString = (y, m, d) => {
+    const mm = String(m + 1).padStart(2, '0');
+    const dd = String(d).padStart(2, '0');
+    return `${y}-${mm}-${dd}`;
+  };
+
+  const selectedDateStr = useMemo(() => 
+    formatDateString(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()), 
+  [selectedDate]);
 
   const [events, setEvents] = useState([]);
   const [syncStatus, setSyncStatus] = useState('initializing');
@@ -65,8 +80,6 @@ export default function App() {
     '기타': NOTION_PALETTES.gray
   });
 
-  /* [수정] 오늘의 한마디 각 항목에 작성자(author)를 함께 저장하도록 words 구조를
-     문자열 배열 -> { text, author } 객체 배열로 확장 */
   const [todayNotice, setTodayNotice] = useState({
     words: [{ text: '', author: '' }],
     ddayLabel: '',
@@ -89,11 +102,9 @@ export default function App() {
 
   const [selectedEvent, setSelectedEvent] = useState(null);
 
-  /* [중앙 공유형 키 시스템 구축] */
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [tempApiKey, setTempApiKey] = useState('');
 
-  /* 11대 일정 양식 폼 */
   const [newEvent, setNewEvent] = useState({
     title: '',
     category: '교무회의',
@@ -126,28 +137,21 @@ export default function App() {
 
   const [newCategoryName, setNewCategoryName] = useState('');
   const [selectedPaletteKey, setSelectedPaletteKey] = useState('red');
-  /* [수정] 오늘의 한마디 편집 폼 리스트도 { text, author } 객체 배열로 변경 */
   const [noticeFormList, setNoticeFormList] = useState([{ text: '', author: '' }]);
   const [ddayForm, setDdayForm] = useState({ label: '', date: '' });
 
-  // 메신저 일정 다중 AI 분석 제안 리스트
   const [messengerInput, setMessengerInput] = useState('');
   const [parsedProposals, setParsedProposals] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  /* AI 카드 내부 카테고리 변경 상태 관리 임시 상태 */
   const [activeProposalCatDropdownId, setActiveProposalCatDropdownId] = useState(null);
-
-  /* 드래그 시작 대상 일정 아이디 보관 상태 */
   const [draggedEventId, setDraggedEventId] = useState(null);
 
-  /* 창 제어 기능 확장 상태관리 */
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
   const [isMoveLocked, setIsMovelocked] = useState(false);
   const [opacityValue, setOpacityValue] = useState(1.0);
   const [isOpacityDropdownOpen, setIsOpacityDropdownOpen] = useState(false);
 
-  /* 나이스 오픈 API 명세 고정 상수 */
   const neisConfig = {
     key: 'edb57391f5a14ac7bf15f31e4615c7c1',
     officeCode: 'P10',
@@ -155,14 +159,19 @@ export default function App() {
   };
   const [meals, setMeals] = useState({});
 
-  /* 하단 인라인 패널 개방 유무 상태 제어반 (null: 닫힘, 'meal': 급식, 'ai': AI분석) */
-  /* [수정] 기존에는 이 상태가 "우측 사이드바" 표시 여부를 제어했지만, 이제는
-     디데이 박스 하단에 표시되는 "인라인 정보 패널"의 표시 여부를 제어합니다. */
   const [activeSidePanel, setActiveSidePanel] = useState(null);
 
-  /* 상단 헤더 컴포넌트 렌더링에 필요한 날짜 관련 상수 */
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
+
+  const filteredEvents = useMemo(() => {
+    return events.filter(event => {
+      if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(event.category)) {
+        return false;
+      }
+      return true;
+    });
+  }, [events, activeCategoryFilters]);
 
   const showToast = (message, type = 'info') => {
     setToast({ show: true, message, type });
@@ -171,11 +180,16 @@ export default function App() {
     }, 3000);
   };
 
-  const formatDateString = (y, m, d) => {
-    const mm = String(m + 1).padStart(2, '0');
-    const dd = String(d).padStart(2, '0');
-    return `${y}-${mm}-${dd}`;
-  };
+  // [기능 추가 및 보완] 프로그램 실행 시 즉시 전체화면으로 실행 설정 유지 및 강화
+  useEffect(() => {
+    if (window.electronAPI && typeof window.electronAPI.setFullScreen === 'function') {
+      try {
+        window.electronAPI.setFullScreen(true);
+      } catch (err) {
+        console.error("Electron Fullscreen API 가동 실패:", err);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const activeKeys = Object.keys(categories);
@@ -264,8 +278,6 @@ export default function App() {
       if (snapshot.exists()) {
         const rawData = snapshot.data();
         let words = [];
-        /* [수정] 과거 버전(문자열 배열)으로 저장된 데이터도 { text, author } 객체로
-           안전하게 변환하여 하위 호환성을 유지 */
         if (rawData.words && Array.isArray(rawData.words)) {
           words = rawData.words.map(w => (typeof w === 'string' ? { text: w, author: '' } : { text: w.text || '', author: w.author || '' }));
         } else if (rawData.word) {
@@ -327,12 +339,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [todayNotice.words]);
 
-  const extractHexColor = (themeText) => {
-    if (!themeText) return '#37352F';
-    const match = themeText.match(/\[(.*?)\]/);
-    return match ? match[1] : '#37352F';
-  };
-
   useEffect(() => {
     const initSortable = () => {
       if (typeof window === 'undefined') return;
@@ -393,6 +399,10 @@ export default function App() {
     }
   }, [events, currentDate, activeSidePanel]);
 
+  useEffect(() => {
+    fetchNeisMealData(year, month);
+  }, [year, month]);
+
   const saveSingleEventData = async (eventId, fullPayload) => {
     if (syncStatus === 'connected' && db) {
       try {
@@ -416,8 +426,6 @@ export default function App() {
   };
 
   const handleUpdateNotice = async () => {
-    /* [수정] 문자열 trim 대신 각 항목의 text/author를 각각 정리하고,
-       내용(text)이 비어있는 행은 저장 시 자동으로 제외 */
     const cleanWords = noticeFormList
       .map(w => ({ text: (w.text || '').trim(), author: (w.author || '').trim() }))
       .filter(w => w.text);
@@ -448,6 +456,22 @@ export default function App() {
         showToast("디데이 설정이 성공적으로 수정되었습니다.", "success");
       } catch (err) {
         console.error("Dday save fail:", err);
+      }
+    }
+  };
+
+  // [기능 추가] 디데이 정보 비우기(초기화)를 처리하는 함수 추가
+  const handleClearDday = async () => {
+    const updated = { ...todayNotice, ddayLabel: '', ddayTarget: '' };
+    setTodayNotice(updated);
+    setIsDdayEditOpen(false);
+
+    if (syncStatus === 'connected' && db) {
+      try {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notices', 'board'), updated, { merge: true });
+        showToast("디데이를 삭제하여 '설정 없음' 상태로 변경했습니다.", "success");
+      } catch (err) {
+        console.error("Dday clear fail:", err);
       }
     }
   };
@@ -560,17 +584,17 @@ export default function App() {
         "오직 아래의 JSON 명세(배열 형태)만 완전한 텍스트로 응답하고, 마크다운 기호나 설명은 일절 배제하라:",
         "[",
         "  {",
-        '    "title": "추출한 일정명 (필수)",',
-        '    "category": "반드시 빈 문자열 \\"\\"으로 비워둘 것 (필수)",',
-        '    "startDate": "YYYY-MM-DD 형식 (필수)",',
-        '    "endDate": "YYYY-MM-DD 형식 (필수)",',
-        '    "startTime": "HH:MM 형식 (없으면 \\"\\")",',
-        '    "endTime": "HH:MM 형식 (없으면 \\"\\")",',
-        '    "manager": "담당자명 (없으면 빈칸)",',
-        '    "location": "장소 (없으면 빈칸)",',
-        '    "applyMethod": "신청방법 (없으면 빈칸)",',
-        '    "applyCount": "대상인원 (없으면 빈칸)",',
-        '    "memo": "상세 설명 및 원문 관련 요약"',
+        '   "title": "추출한 일정명 (필수)",',
+        '   "category": "반드시 빈 문자열 \\"\\"으로 비워둘 것 (필수)",',
+        '   "startDate": "YYYY-MM-DD 형식 (필수)",',
+        '   "endDate": "YYYY-MM-DD 형식 (필수)",',
+        '   "startTime": "HH:MM 형식 (없으면 \\"\\")",',
+        '   "endTime": "HH:MM 형식 (없으면 \\"\\")",',
+        '   "manager": "담당자명 (없으면 빈칸)",',
+        '   "location": "장소 (없으면 빈칸)",',
+        '   "applyMethod": "신청방법 (없으면 빈칸)",',
+        '   "applyCount": "대상인원 (없으면 빈칸)",',
+        '   "memo": "상세 설명 및 원문 관련 요약"',
         "  }",
         "]"
       ];
@@ -673,7 +697,6 @@ export default function App() {
     setParsedProposals(prev => prev.filter(p => p.id !== proposalId));
   };
 
-  /* 일렉트론 테두리 제어 및 윈도우 컨트롤 액션 헬퍼 */
   const handleToggleAlwaysOnTop = () => {
     const nextState = !isAlwaysOnTop;
     setIsAlwaysOnTop(nextState);
@@ -717,23 +740,23 @@ export default function App() {
 
     try {
       const response = await fetch(url);
-      if (!response.ok) return;
       const data = await response.json();
 
-      if (data.mealServiceDietInfo) {
+      if (data.mealServiceDietInfo && data.mealServiceDietInfo[1].row) {
         const rows = data.mealServiceDietInfo[1].row;
         const mealMap = {};
 
         rows.forEach(row => {
           const dateKey = `${row.MLSV_YMD.substring(0,4)}-${row.MLSV_YMD.substring(4,6)}-${row.MLSV_YMD.substring(6,8)}`;
           const cleanDiet = row.DDISH_NM
+            .replace(/\([^()]*\)/g, '')
             .replace(/<br\s*\/?>/gi, '\n')
-            .replace(/[0-9.()]/g, '')
             .trim();
 
           if (!mealMap[dateKey]) {
             mealMap[dateKey] = { lunch: null, dinner: null };
           }
+          
           if (row.MMEAL_SC_CODE === "2") {
             mealMap[dateKey].lunch = { diet: cleanDiet, calories: row.CAL_INFO };
           } else if (row.MMEAL_SC_CODE === "3") {
@@ -746,29 +769,9 @@ export default function App() {
       }
     } catch (err) {
       console.error("나이스 급식 파싱 실패:", err);
+      setMeals({});
     }
   };
-
-  useEffect(() => {
-    fetchNeisMealData(year, month);
-  }, [currentDate]);
-
-  const selectedDateStr = useMemo(() => {
-    return formatDateString(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-  }, [selectedDate]);
-
-  const activeDayMeal = useMemo(() => {
-    return meals[selectedDateStr] || null;
-  }, [meals, selectedDateStr]);
-
-  const filteredEvents = useMemo(() => {
-    return events.filter(event => {
-      if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(event.category)) {
-        return false;
-      }
-      return true;
-    });
-  }, [events, activeCategoryFilters]);
 
   const handleAddEventSubmit = async (e) => {
     if (e) e.preventDefault();
@@ -799,7 +802,7 @@ export default function App() {
       try {
         const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'events'));
         await setDoc(docRef, payload);
-        showToast("일정이 연동 및 공유되었습니다.", "success");
+        showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
       } catch (err) {
         console.error("Firebase write error:", err);
         saveLocalEvent(payload);
@@ -828,7 +831,7 @@ export default function App() {
     const updated = [...events, payload];
     setEvents(updated);
     localStorage.setItem('local_school_events', JSON.stringify(updated));
-    showToast("로컬 브라우저 가상 보관소에 기록되었습니다.", "success");
+    showToast("가상 오프라인 보관소에 기록되었습니다.", "success");
   };
 
   const handleUpdateEvent = async () => {
@@ -895,6 +898,10 @@ export default function App() {
     }
   };
 
+  const activeDayMeal = useMemo(() => {
+    return meals[selectedDateStr] || null;
+  }, [meals, selectedDateStr]);
+
   const calculatedDdayValue = useMemo(() => {
     if (!todayNotice.ddayTarget) return '?';
     const target = new Date(todayNotice.ddayTarget + 'T00:00:00');
@@ -906,7 +913,6 @@ export default function App() {
     return diffDays > 0 ? `-${diffDays}` : `+${Math.abs(diffDays)}`;
   }, [todayNotice.ddayTarget]);
 
-  /* 💡 [버그 해결 핵심] 참조 크래시를 유발시켰던 그리드 기반 날짜 연산 상수를 return문 직전 스코프로 명확히 배치 이동 */
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayIndex = new Date(year, month, 1).getDay();
   const prevDaysInMonth = new Date(year, month, 0).getDate();
@@ -1017,7 +1023,6 @@ export default function App() {
                 <span className="text-xs font-bold text-[#461146] flex items-center gap-1.5 shrink-0 bg-[#EAE4F2] px-2.5 py-1 rounded-full">
                   <MessageSquare className="w-3.5 h-3.5" /> 오늘의 한마디
                 </span>
-                {/* [수정] 한마디 본문과 함께 작성자(author)도 표시 */}
                 <div className="text-[#37352F] text-sm md:text-base font-semibold truncate border-l border-gray-200 pl-3 flex-1 flex items-baseline gap-2">
                   <span className="truncate">{todayNotice.words && todayNotice.words[activeNoticeIdx] && todayNotice.words[activeNoticeIdx].text ? todayNotice.words[activeNoticeIdx].text : '등록된 한마디가 없습니다.'}</span>
                   {todayNotice.words && todayNotice.words[activeNoticeIdx] && todayNotice.words[activeNoticeIdx].author && (
@@ -1033,6 +1038,7 @@ export default function App() {
                     <button onClick={() => setActiveNoticeIdx(prev => (prev + 1) % todayNotice.words.length)} className="hover:text-purple-700"><ChevronRight className="w-3.5 h-3.5" /></button>
                   </div>
                 )}
+                {/* [디자인 보완] 텍스트 수정 기획에 맞춘 일관성 배정 */}
                 <button onClick={() => { setNoticeFormList(todayNotice.words && todayNotice.words.length > 0 ? todayNotice.words : [{ text: '', author: '' }]); setIsNoticeEditOpen(true); }} className="text-xs font-bold text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded border border-purple-100 transition-colors">+ 등록</button>
               </div>
             </div>
@@ -1057,16 +1063,6 @@ export default function App() {
           </div>
 
           {/* 달력 컨테이너 */}
-          {/* ===================================================================
-              [수정] 급식 정보 / AI 분석 패널 배치 방식 변경
-              - 이전: 캘린더 위쪽에 전체 너비 카드로 표시(캘린더 폭 영향 없음)
-              - 변경: "오늘의 한마디 + 디데이" 그리드와 동일한 xl:grid-cols-5 구조를
-                     이 아래 그리드에도 그대로 적용하여, 패널이 열리면
-                     캘린더는 오늘의 한마디와 같은 폭(xl:col-span-4)으로 줄어들고,
-                     패널은 디데이와 같은 폭(xl:col-span-1)으로 디데이 바로 아래
-                     칸에 정렬되어 나타납니다. 패널이 닫히면 캘린더는 다시
-                     전체 너비(xl:col-span-5)로 복귀합니다.
-              =================================================================== */}
           <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start w-full">
             <section className={`${activeSidePanel ? 'xl:col-span-4' : 'xl:col-span-5'} bg-white border border-[#E9E9E6] rounded-lg p-5 shadow-sm flex flex-col min-h-187.5 min-w-0 transition-all duration-300`}>
               <div className="flex items-center justify-between pb-5 border-b border-[#E9E9E6] mb-5">
@@ -1095,7 +1091,7 @@ export default function App() {
 
               <div className="grid grid-cols-[0.8fr_1.2fr_1.2fr_1.2fr_1.2fr_1.2fr_0.8fr] gap-2 flex-1 min-h-125 w-full min-w-0">
                 {Array.from({ length: firstDayIndex }).map((_, idx) => (
-                  <div key={`prev-${idx}`} className="bg-[#F7F7F5]/50 border border-dashed border-[#E9E9E6]/50 rounded-md p-2 text-gray-300 text-xs text-left overflow-hidden min-w-0">
+                  <div key={`prev-${idx}`} className="bg-[#F7F7F5]/50 border border-dashed border-[#E9E9E6]/50 rounded-md p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0">
                     {prevDaysInMonth - firstDayIndex + idx + 1}
                   </div>
                 ))}
@@ -1163,13 +1159,7 @@ export default function App() {
               </div>
             </section>
 
-            {/* ===================================================================
-                [수정] 급식 정보 / AI 분석 패널 (디데이와 동일한 xl:col-span-1 폭)
-                - "실시간 식단표" / "AI 스케줄 비서" 타이틀바를 제거하고,
-                  해당 카드 콘텐츠(급식 카드 또는 AI 분석 카드)만 노출합니다.
-                - 닫기는 카드 우측 상단의 작은 X 아이콘 또는 우측 독(dock)의
-                  같은 버튼을 다시 누르는 방식으로 동일하게 동작합니다.
-                =================================================================== */}
+            {/* 디데이 박스 세로 수직 라인 일치화형 아코디언 임베딩 패널 */}
             {activeSidePanel && (
               <div className="xl:col-span-1 bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 animate-in fade-in slide-in-from-top-2 duration-200">
                 <button
@@ -1179,7 +1169,7 @@ export default function App() {
                   <X className="w-4 h-4" />
                 </button>
 
-                {/* 급식 정보 카드 */}
+                {/* 오늘 급식 위젯 */}
                 {activeSidePanel === 'meal' && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -1224,7 +1214,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* AI 분석 카드 */}
+                {/* AI 도큐먼트 분석 위젯 */}
                 {activeSidePanel === 'ai' && (
                   <div className="space-y-4">
                     <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -1279,7 +1269,6 @@ export default function App() {
                                       <span>{proposal.category || '⚠️ 카테고리 선택'}</span>
                                       <ChevronDown className="w-2.5 h-2.5" />
                                     </button>
-                                    {/* 💡 [오류 수정] 분기 오발 오타 코드를 정규 비교 객체식으로 안전하게 정정 교정 완료 */}
                                     {activeProposalCatDropdownId === proposal.id && (
                                       <div className="absolute left-0 mt-1 w-36 bg-white border border-[#E9E9E6] rounded-md shadow-xl z-50 max-h-40 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150">
                                         {Object.entries(categories).map(([catName, styling]) => (
@@ -1316,7 +1305,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 우측 독바 고정 도크 (급식/AI 패널 여닫기 트리거는 그대로 유지) */}
+        {/* 최우측 기능 인덱싱 가변 도크바 */}
         <div className="w-14 bg-white border-l border-[#E9E9E6] flex flex-col items-center py-4 justify-start gap-5 z-40 shrink-0 window-no-drag shadow-xs">
           <button
             type="button" onClick={() => toggleSidePanel('meal')}
@@ -1334,7 +1323,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* 1. Add Event Modal */}
+      {/* 모달 등 하위 컴포넌트는 기존과 동일하게 유지 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
@@ -1388,15 +1377,15 @@ export default function App() {
               <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} placeholder="추가 세부 사항을 기재해 주세요." value={newEvent.memo} onChange={(e) => setNewEvent(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
 
               <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
-                <button type="button" onClick={() => setIsAddModalOpen(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium">취소</button>
-                <button type="submit" className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium">캘린더에 게시</button>
+                <button type="button" onClick={() => setIsAddModalOpen(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                <button type="submit" className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">캘린더에 게시</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* 2. Detail & Action Management Modal */}
+      {/* Detail & Action Management Modal */}
       {isDetailModalOpen && selectedEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
@@ -1442,8 +1431,8 @@ export default function App() {
                   <div><label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">메모</label><textarea rows={3} value={editEventForm.memo} onChange={(e) => setEditEventForm(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
 
                   <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
-                    <button onClick={() => setIsEditing(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium">취소</button>
-                    <button onClick={handleUpdateEvent} className="flex-1 py-2 bg-[#37352F] text-white rounded-md font-medium">변경 저장</button>
+                    <button onClick={() => setIsEditing(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                    <button onClick={handleUpdateEvent} className="flex-1 py-2 bg-[#37352F] text-white rounded-md font-medium text-xs">변경 저장</button>
                   </div>
                 </div>
               </div>
@@ -1496,7 +1485,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 3. 설정 모달 */}
+      {/* 설정 모달 */}
       {isCategoryManageOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
@@ -1518,7 +1507,6 @@ export default function App() {
               <p className="text-xs font-bold text-gray-600">새 카테고리 추가</p>
               <input type="text" placeholder="카테고리 명칭 입력" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400" />
 
-              {/* [추가] 카테고리 색상 선택 - 팔레트 동그라미 */}
               <div className="space-y-1.5">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">색상 선택</p>
                 <div className="flex items-center flex-wrap gap-2.5">
@@ -1536,7 +1524,6 @@ export default function App() {
 
               <button onClick={handleAddCategorySubmit} className="w-full py-2 bg-emerald-700 text-white rounded text-xs font-bold">+ 등록</button>
 
-              {/* [추가] 현재 저장된 카테고리 목록 - 색상 확인 및 즉시 삭제 가능 */}
               <div className="pt-3 border-t border-[#E9E9E6] space-y-1.5">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">저장된 카테고리 ({Object.keys(categories).length}개)</p>
                 <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
@@ -1559,30 +1546,127 @@ export default function App() {
         </div>
       )}
 
-      {/* 4. 오늘의 한마디 수정 모달 */}
+      {/* 오늘의 한마디 수정 모달 */}
       {isNoticeEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white border border-[#E9E9E6] rounded-lg shadow-xl w-full max-w-md p-6 space-y-4">
-            <h3 className="text-base font-bold text-[#37352F]">오늘의 한마디 리스트 수정</h3>
-            {noticeFormList.map((notice, idx) => (
-              <div key={idx} className="flex gap-2 items-center">
-                <input type="text" value={notice} onChange={(e) => { const copy = [...noticeFormList]; copy[idx] = e.target.value; setNoticeFormList(copy); }} className="flex-1 p-2 border border-[#E9E9E6] rounded bg-[#F7F7F5] text-xs" />
-              </div>
-            ))}
-            <button type="button" onClick={() => setNoticeFormList([...noticeFormList, ''])} className="w-full py-2 border border-dashed text-purple-700 rounded text-xs font-bold">+ 행 추가</button>
-            <div className="flex gap-2 justify-end"><button onClick={() => setIsNoticeEditOpen(false)} className="px-4 py-2 border text-gray-600 rounded text-xs">취소</button><button onClick={handleUpdateNotice} className="px-4 py-2 bg-purple-700 text-white rounded text-xs">저장</button></div>
+          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+              {/* [디자인 보완] 텍스트 수정: 오늘의 한마디 명세 편집 -> 오늘의 한마디 등록 */}
+              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-purple-700" /> 오늘의 한마디 등록
+              </h3>
+              <button onClick={() => setIsNoticeEditOpen(false)} className="p-1 hover:bg-gray-100 rounded transition"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-3.5 max-h-[55vh] overflow-y-auto pr-1">
+              {noticeFormList.map((notice, idx) => (
+                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center bg-[#F7F7F5]/50 border border-gray-100 p-3 rounded-lg relative">
+                  <div className="md:col-span-3 flex flex-col">
+                    {/* [디자인 보완] 텍스트 수정: 한마디 본문 문구 ({idx + 1}) -> 오늘의 한마디({idx + 1}) */}
+                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1">오늘의 한마디({idx + 1})</label>
+                    <input
+                      type="text"
+                      placeholder="칠판에 띄울 안내 핵심 내용을 기입하세요."
+                      value={notice.text || ''}
+                      onChange={(e) => { const copy = [...noticeFormList]; copy[idx].text = e.target.value; setNoticeFormList(copy); }}
+                      className="w-full p-2 border border-[#E9E9E6] rounded-md bg-white text-xs font-semibold focus:outline-none"
+                    />
+                  </div>
+                  <div className="md:col-span-1 flex items-end gap-1.5">
+                    <div className="flex-1 flex flex-col">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase mb-1">작성자</label>
+                      <input
+                        type="text"
+                        placeholder="예: 홍길동"
+                        value={notice.author || ''}
+                        onChange={(e) => { const copy = [...noticeFormList]; copy[idx].author = e.target.value; setNoticeFormList(copy); }}
+                        className="w-full p-2 border border-[#E9E9E6] rounded-md bg-white text-xs focus:outline-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={noticeFormList.length <= 1}
+                      onClick={() => setNoticeFormList(noticeFormList.filter((_, i) => i !== idx))}
+                      className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded border border-transparent hover:border-rose-100 disabled:opacity-40 disabled:pointer-events-none mb-0.5"
+                      title="해당 행 삭제"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setNoticeFormList([...noticeFormList, { text: '', author: '' }])}
+              className="w-full py-2.5 border border-dashed border-purple-200 text-purple-700 bg-purple-50/30 hover:bg-purple-50 transition-all rounded-lg text-xs font-black"
+            >
+              + 오늘의 한마디 추가
+            </button>
+
+            <div className="flex gap-3 pt-3 border-t border-[#E9E9E6]">
+              <button onClick={() => setIsNoticeEditOpen(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+              {/* [디자인 보완] 텍스트 수정: 보드판에 즉시 적용 -> 저장 */}
+              <button onClick={handleUpdateNotice} className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">저장</button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* 5. 디데이 설정 모달 */}
+      {/* 디데이 설정 모달 */}
       {isDdayEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white border border-[#E9E9E6] rounded-lg shadow-xl w-full max-w-md p-6 space-y-4">
-            <h3 className="text-base font-bold text-[#37352F]">학년 디데이(D-Day) 설정</h3>
-            <input type="text" placeholder="이벤트 이름" value={ddayForm.label} onChange={(e) => setDdayForm(prev => ({ ...prev, label: e.target.value }))} className="w-full p-2 border text-xs rounded" />
-            <input type="date" value={ddayForm.date} onChange={(e) => setDdayForm(prev => ({ ...prev, date: e.target.value }))} className="w-full p-2 border text-xs rounded" />
-            <div className="flex gap-2 justify-end"><button onClick={() => setIsDdayEditOpen(false)} className="px-4 py-2 border text-gray-600 rounded text-xs">취소</button><button onClick={handleUpdateDday} className="px-4 py-2 bg-rose-600 text-white rounded text-xs">완료</button></div>
+          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+              {/* [디자인 보완] 텍스트 수정: 학년 디데이(D-Day) 설정 및 변경 -> D-Day 설정 */}
+              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2">
+                <Pin className="w-5 h-5 text-rose-500 fill-current" /> D-Day 설정
+              </h3>
+              <button onClick={() => setIsDdayEditOpen(false)} className="p-1 hover:bg-gray-100 rounded transition"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              <div>
+                {/* [디자인 보완] 텍스트 수정: 목표 이벤트 타이틀 이름 -> 이벤트 이름 */}
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">이벤트 이름 *</label>
+                <input
+                  type="text"
+                  placeholder="예: 1차 지필평가, 여름방학식, 수능"
+                  value={ddayForm.label}
+                  onChange={(e) => setDdayForm(prev => ({ ...prev, label: e.target.value }))}
+                  className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-rose-400 font-semibold"
+                />
+              </div>
+              <div>
+                {/* [디자인 보완] 텍스트 수정: 목표 달성 지정일자 -> 이벤트 날짜 */}
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">이벤트 날짜 *</label>
+                <input
+                  type="date"
+                  value={ddayForm.date}
+                  onChange={(e) => setDdayForm(prev => ({ ...prev, date: e.target.value }))}
+                  className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-rose-400 text-xs font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-3 border-t border-[#E9E9E6]">
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setIsDdayEditOpen(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                {/* [디자인 보완] 텍스트 수정: 디데이 카운트 기동 -> 저장 */}
+                <button onClick={handleUpdateDday} className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-md font-medium text-xs shadow-xs">저장</button>
+              </div>
+              {/* [기능 보완] "등록된 D-Day 없음(초기화)" 상태로 변경할 수 있도록 비우기 버튼 신설 */}
+              {todayNotice.ddayTarget && (
+                <button 
+                  type="button" 
+                  onClick={handleClearDday} 
+                  className="w-full py-1.5 border border-dashed border-gray-300 text-gray-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50/50 transition-all rounded text-xs font-bold flex items-center justify-center gap-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> <span>D-Day 비우기 (설정 없음으로 초기화)</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

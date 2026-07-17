@@ -5,6 +5,7 @@ let win;
 
 function createWindow() {
   win = new BrowserWindow({
+    show: false,
     width: 1280,
     height: 850,
     minWidth: 900,
@@ -18,6 +19,10 @@ function createWindow() {
       preload: path.join(app.getAppPath(), 'preload.js') 
     },
   });
+
+  win.maximize();
+
+  win.show();
 
   win.loadFile(path.join(__dirname, 'dist/index.html'));
   
