@@ -1,15 +1,17 @@
+// src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// Firebase 콘솔 -> 프로젝트 설정 -> 웹앱 등록 후 발급된 키를 붙여넣으세요.
+// 🔑 [수정] 하드코딩된 값 대신 .env의 환경변수를 사용
+// .env 파일은 .gitignore에 포함되어 있어 GitHub에는 올라가지 않음
 const firebaseConfig = {
-  apiKey: "AIzaSyD-NiN8SBYWoM7DHMpsOq8BhdqkYpsNHl0",
-  authDomain: "grade-calendar-89b7c.firebaseapp.com",
-  projectId: "grade-calendar-89b7c",
-  storageBucket: "grade-calendar-89b7c.firebasestorage.app",
-  messagingSenderId: "567144806225",
-  appId: "1:567144806225:web:7c9933f3454d4bb5a14570"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // 1. Firebase 커넥션 시작

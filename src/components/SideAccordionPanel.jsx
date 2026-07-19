@@ -1,11 +1,22 @@
 // src/components/SideAccordionPanel.jsx
 import React, { useState, useEffect } from 'react';
-import { Utensils, Sparkles, Bookmark, X, Plus, Trash2, ArrowUpRight, GraduationCap, Users, User, Calendar, Edit2, Check, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon } from 'lucide-react';
+import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon } from 'lucide-react';
 // 엑셀 양식 생성 및 업로드 파싱을 위한 SheetJS 임포트
 import * as XLSX from 'xlsx';
 
 const DAYS_SHORT = ['월', '화', '수', '목', '금'];
 const PERIODS = ['1교시', '2교시', '3교시', '4교시', '5교시', '6교시', '7교시'];
+
+// 🔑 [수정] Firestore는 배열 안에 배열(nested array)을 지원하지 않으므로,
+// 요일(0~4)을 키로 하는 객체(맵) 안에 7칸짜리 1차원 배열을 넣는 구조로 변경.
+// grid[dayIdx][periodIdx] 접근 문법은 배열/객체 동일하게 동작하므로 읽는 쪽 코드는 그대로 둠.
+const createEmptyGrid = () => ({
+  0: Array(7).fill(''),
+  1: Array(7).fill(''),
+  2: Array(7).fill(''),
+  3: Array(7).fill(''),
+  4: Array(7).fill('')
+});
 
 export default function SideAccordionPanel({
   activeSidePanel, setActiveSidePanel, selectedDate, activeDayMeal,
@@ -31,39 +42,34 @@ export default function SideAccordionPanel({
   const [editingCell, setEditingCell] = useState(null); 
   const [cellInputValue, setCellInputValue] = useState('');
 
-  // 원격 상태 목록으로부터 동적 반/교사 목록 자동 매핑 및 동기화 무결성 확보
   useEffect(() => {
     const classes = Object.keys(customTimetables.classes || {});
-    if (classes.length > 0 && !selectedClass) {
-      setSelectedClass(classes[0]);
+    if (classes.length > 0) {
+      setSelectedClass(prev => prev || classes[0]);
     }
 
     const teachers = Object.keys(customTimetables.teachers || {});
-    if (teachers.length > 0 && !selectedTeacher) {
-      setSelectedTeacher(teachers[0]);
+    if (teachers.length > 0) {
+      setSelectedTeacher(prev => prev || teachers[0]);
     }
-  }, [customTimetables, selectedClass, selectedTeacher]);
+  }, [customTimetables]);
 
-  // 주말, 점심시간, 7교시 이후를 제외하고 오직 현재 수업 시간에만 하이라이트 활성화
   useEffect(() => {
     if (activeSidePanel !== 'timetable') return;
 
     const checkCurrentPeriodAndDay = () => {
       const now = new Date();
-      const day = now.getDay(); // 0: 일, 1: 월, ..., 6: 토
+      const day = now.getDay();
       const minutes = now.getHours() * 60 + now.getMinutes(); 
 
-      // 주말일 경우 하이라이트 무조건 제외
       if (day === 0 || day === 6) {
         setHighlightDayIdx(-1); 
         setCurrentPeriod(0);   
         return;
       }
 
-      // 평일(월~금) 인덱스 매핑 (0~4)
       setHighlightDayIdx(day - 1);
 
-      // 정확한 해당 교시 시간 범위 내에서만 하이라이트 (점심시간 등은 0으로 폴백)
       if (minutes >= 510 && minutes <= 560) setCurrentPeriod(1);
       else if (minutes >= 570 && minutes <= 620) setCurrentPeriod(2);
       else if (minutes >= 630 && minutes <= 680) setCurrentPeriod(3);
@@ -85,6 +91,7 @@ export default function SideAccordionPanel({
 
   /**
    * 특정 셀의 텍스트가 수정 완료되었을 때 상위 App.jsx를 거쳐 파이어베이스 원격 문서로 일괄 업데이트 진행
+   * 🔑 [수정] nested array 대신 맵 구조로 불변 업데이트
    */
   const handleCellSave = (dayIdx, periodIdx) => {
     const value = cellInputValue.trim();
@@ -93,20 +100,22 @@ export default function SideAccordionPanel({
       classes: { ...customTimetables.classes }, 
       teachers: { ...customTimetables.teachers } 
     };
+
+    const applyUpdate = (bucketKey, targetKey) => {
+      const existingGrid = copy[bucketKey][targetKey] || createEmptyGrid();
+      const existingRow = existingGrid[dayIdx] || Array(7).fill('');
+      const updatedRow = [...existingRow];
+      updatedRow[periodIdx] = value;
+
+      copy[bucketKey][targetKey] = { ...existingGrid, [dayIdx]: updatedRow };
+    };
     
     if (timetableTab === 'class') {
       if (!selectedClass) return;
-      if (!copy.classes[selectedClass]) {
-        copy.classes[selectedClass] = Array.from({ length: 5 }, () => Array(7).fill(''));
-      }
-      copy.classes[selectedClass][dayIdx][periodIdx] = value;
+      applyUpdate('classes', selectedClass);
     } else {
       if (!selectedTeacher) return;
-      const tKey = selectedTeacher.trim();
-      if (!copy.teachers[tKey]) {
-        copy.teachers[tKey] = Array.from({ length: 5 }, () => Array(7).fill(''));
-      }
-      copy.teachers[tKey][dayIdx][periodIdx] = value;
+      applyUpdate('teachers', selectedTeacher.trim());
     }
     
     onUpdateGlobalTimetables(copy);
@@ -151,6 +160,7 @@ export default function SideAccordionPanel({
 
   /**
    * 업로드된 엑셀 데이터를 파싱하여 상위 App.jsx를 통해 파이어베이스 클라우드로 동기화 스트리밍
+   * 🔑 [수정] parsedGrid를 nested array 대신 맵 구조로 생성
    */
   const handleExcelUpload = (e) => {
     const file = e.target.files[0];
@@ -173,7 +183,7 @@ export default function SideAccordionPanel({
         const worksheet = workbook.Sheets[sheetName];
         
         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        const parsedGrid = Array.from({ length: 5 }, () => Array(7).fill(''));
+        const parsedGrid = createEmptyGrid(); // 🔑 배열의 배열 대신 맵 구조로 생성
         
         if (timetableTab === 'class') {
           for (let pIdx = 0; pIdx < 7; pIdx++) {
@@ -242,7 +252,6 @@ export default function SideAccordionPanel({
 
       <div className="text-xs">
         
-        {/* ==================== 1. 시간표 등록 및 조회 패널 ==================== */}
         {activeSidePanel === 'timetable' && (
           <div className="space-y-4 font-sans flex flex-col flex-1 justify-between">
             <div className="space-y-3 flex-1">
@@ -253,8 +262,6 @@ export default function SideAccordionPanel({
                 </div>
               </div>
 
-              {/* 🌟 [수정 섹션] 요구사항 반영: 탭 스위칭 중간에 발생하는 검정색 보더 번쩍임 및 모핑 딜레이 오류 수정 */}
-              {/* 무거운 transition-all을 걷어내고 배경과 글자색 위주의 컴팩트한 transition-colors duration-150으로 대체하여 깜빡임을 원천 해결했습니다. */}
               <div className="grid grid-cols-2 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg shrink-0">
                 <button 
                   onClick={() => { setTimetableTab('class'); setEditingCell(null); }} 
@@ -445,7 +452,6 @@ export default function SideAccordionPanel({
           </div>
         )}
 
-        {/* ==================== 2. 급식 위젯 패널 ==================== */}
         {activeSidePanel === 'meal' && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -477,7 +483,6 @@ export default function SideAccordionPanel({
           </div>
         )}
 
-        {/* ==================== 3. AI 파서 패널 ==================== */}
         {activeSidePanel === 'ai' && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -541,7 +546,10 @@ export default function SideAccordionPanel({
                             )}
                           </div>
                           <span className="text-[9px] text-gray-400 font-bold flex items-center gap-0.5">
-                            <CalendarIcon className="w-2.5 h-2.5 text-gray-300" /> {proposal.startDate}
+                            <CalendarIcon className="w-2.5 h-2.5 text-gray-300" /> 
+                            {proposal.endDate && proposal.endDate !== proposal.startDate 
+                              ? `${proposal.startDate} ~ ${proposal.endDate}` 
+                              : proposal.startDate}
                           </span>
                         </div>
                         
@@ -569,7 +577,6 @@ export default function SideAccordionPanel({
           </div>
         )}
 
-        {/* ==================== 4. 북마크 패널 ==================== */}
         {activeSidePanel === 'bookmark' && (
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">

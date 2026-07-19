@@ -1,37 +1,28 @@
 // src/components/TopWidgets.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { MessageSquare, Pin, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 
 export default function TopWidgets({
   todayNotice, activeNoticeIdx, setActiveNoticeIdx, setNoticeFormList, setIsNoticeEditOpen,
   calculatedDdayValue, setDdayForm, setIsDdayEditOpen, currentTimeStr, currentDateStr
 }) {
-  
-  // 16:30 퇴근 타이머를 위한 실시간 상태 및 계산 함수
-  const [timeLeftStr, setTimeLeftStr] = useState('');
 
-  useEffect(() => {
-    const calculateTime = () => {
-      const now = new Date();
-      const target = new Date(now);
-      target.setHours(16, 30, 0, 0); // 퇴근 타겟 스케줄 16:30:00 고정
+  // 🔑 [최적화] 자체 setInterval을 두지 않고, 부모(App.jsx)가 1초마다 갱신해주는
+  // currentTimeStr이 바뀔 때만 재계산하도록 변경. 매초 타이머를 새로 만들고 없애던
+  // 낭비(불필요한 setInterval 재생성)를 제거함.
+  const timeLeftStr = useMemo(() => {
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(16, 30, 0, 0); // 퇴근 타겟 스케줄 16:30:00 고정
 
-      const diff = target - now;
+    const diff = target - now;
 
-      if (diff <= 0) {
-        setTimeLeftStr('🎉 칼퇴 완료!');
-      } else {
-        const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-        const minutes = Math.floor((diff / (1000 * 60)) % 60);
-        
-        // "O시간 O분" 형식으로 문자열 유지
-        setTimeLeftStr(`${hours}시간 ${minutes}분`);
-      }
-    };
-
-    calculateTime();
-    const intervalId = setInterval(calculateTime, 1000); // 1초 주기로 연산 업데이트 반복
-    return () => clearInterval(intervalId);
+    if (diff <= 0) {
+      return '🎉 칼퇴 완료!';
+    }
+    const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+    const minutes = Math.floor((diff / (1000 * 60)) % 60);
+    return `${hours}시간 ${minutes}분`;
   }, [currentTimeStr]);
 
   // 시계에서 초단위를 떼고 분까지만 표시하는 헬퍼 함수
@@ -45,7 +36,6 @@ export default function TopWidgets({
   };
 
   return (
-    // 🌟 [수정 섹션] 요구사항 반영: 폰트를 "Wanted Sans"로 명시적 강제 적용
     <div 
       className="grid grid-cols-1 gap-1.5 items-stretch w-full xl:grid-cols-5"
       style={{ fontFamily: '"Wanted Sans", sans-serif' }}
@@ -88,8 +78,6 @@ export default function TopWidgets({
               <p className="text-sm text-gray-700 truncate flex items-baseline gap-1.5">
                 <span className="font-black text-rose-600 text-base shrink-0">D{calculatedDdayValue}</span>
                 <span className="font-bold truncate">{todayNotice.ddayLabel}</span>
-                {/* 🌟 [수정 섹션] 요구사항 반영: 디데이 이벤트 날짜의 가독성 향상 */}
-                {/* 주변 노션 테마 무드를 해치지 않도록 차분한 Slate톤과 적절한 세미볼드 두께(font-semibold)를 적용하고 가독 크기를 확보했습니다. */}
                 <span className="text-[11px] text-slate-500 font-semibold shrink-0 bg-slate-100 px-1 py-0.5 rounded">
                   {todayNotice.ddayTarget}
                 </span>
@@ -109,10 +97,7 @@ export default function TopWidgets({
             <Clock className="w-3.5 h-3.5" />
           </span>
           <div className="text-left flex flex-col justify-center flex-1 min-w-0">
-            {/* 🌟 [수정 섹션] 요구사항 반영: 시계와 퇴근 타이머의 레이아웃 간격 일관성 매칭 */}
-            {/* 좌측(시간, 날짜)과 우측(퇴근라벨, 남은시간)이 완벽한 상하 대칭 및 정렬을 이루도록 flex 격자 구조를 세밀하게 조율하고 mt-1 마진 규격으로 통일했습니다. */}
             <div className="flex items-start justify-between w-full">
-              {/* 좌측 영역: 현재 시간 및 날짜 */}
               <div className="flex flex-col items-start shrink-0 min-w-0">
                 <p className="text-base font-black text-gray-800 tracking-normal tabular-nums leading-none">
                   {formatTimeToMinute(currentTimeStr)}
@@ -122,7 +107,6 @@ export default function TopWidgets({
                 </p>
               </div>
               
-              {/* 우측 영역: 퇴근 라벨 및 남은 시간 카운트 */}
               <div className="flex flex-col items-end shrink-0 text-right min-w-0">
                 <span className="text-[10px] font-medium text-gray-400 block leading-none">
                   퇴근까지 남은 시간

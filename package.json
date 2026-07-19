@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron:start": "electron .",
-    "electron:package": "electron-builder"
+    "electron:package": "vite build && electron-builder",
+    "deploy": "npx vite build && firebase deploy --only hosting"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.2",
@@ -39,6 +40,9 @@
   "build": {
     "appId": "com.solnae.office-calendar",
     "productName": "교무실 공유 캘린더",
+    "directories": {
+      "output": "build_output"
+    },
     "win": {
       "target": [
         "nsis"
@@ -47,11 +51,14 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "files": [
       "dist/**/*",
       "main.js",
+      "preload.js",
       "package.json"
     ]
   }

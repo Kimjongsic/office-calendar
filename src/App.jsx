@@ -141,7 +141,11 @@ export default function App() {
   const [opacityValue, setOpacityValue] = useState(1.0);
   const [isOpacityDropdownOpen, setIsOpacityDropdownOpen] = useState(false);
 
-  const neisConfig = { key: 'edb57391f5a14ac7bf15f31e4615c7c1', officeCode: 'P10', schoolCode: '8321082' };
+  const neisConfig = { 
+    key: import.meta.env.VITE_NEIS_API_KEY, 
+    officeCode: import.meta.env.VITE_NEIS_OFFICE_CODE, 
+    schoolCode: import.meta.env.VITE_NEIS_SCHOOL_CODE 
+  };
   const [meals, setMeals] = useState({});
   const [activeSidePanel, setActiveSidePanel] = useState(null);
 
@@ -195,12 +199,6 @@ export default function App() {
   }, []);
 
   useEffect(() => { localStorage.setItem('school_calendar_bookmarks', JSON.stringify(bookmarks)); }, [bookmarks]);
-
-  useEffect(() => {
-    if (window.electronAPI && typeof window.electronAPI.setFullScreen === 'function') {
-      try { window.electronAPI.setFullScreen(true); } catch (err) { console.error(err); }
-    }
-  }, []);
 
   useEffect(() => {
     const activeKeys = Object.keys(categories);
@@ -328,13 +326,16 @@ export default function App() {
   const handleToday = () => { setCurrentDate(new Date()); setSelectedDate(new Date()); };
   const toggleSidePanel = (panelName) => setActiveSidePanel(activeSidePanel === panelName ? null : panelName);
 
-  // CalendarBoard 로부터 드래그앤드롭 재정렬 이벤트를 수신하는 실시간 파이어베이스 연동 핸들러
-  const handleEventOrderChange = async (updatedOrders) => {
+  // 🔑 [최적화] 드래그 중 화면 미리보기 전용: 로컬 state만 즉시 갱신, Firestore 쓰기 없음
+  const handleEventOrderPreview = (updatedOrders) => {
     setEvents(prevEvents => prevEvents.map(ev => {
       const match = updatedOrders.find(o => o.id === ev.id);
       return match ? { ...ev, dayOrder: match.updatedOrder } : ev;
     }));
+  };
 
+  // 🔑 [최적화] 드래그가 끝난 시점에 CalendarBoard가 딱 1번 호출: 여기서만 Firestore/로컬스토리지에 저장
+  const handleEventOrderCommit = async (updatedOrders) => {
     if (syncStatus === 'connected' && db) {
       try {
         const batch = writeBatch(db);
@@ -348,11 +349,14 @@ export default function App() {
         showToast("순서 동기화 중 오류가 발생했습니다.", "error");
       }
     } else {
-      const latestEvents = events.map(ev => {
-        const match = updatedOrders.find(o => o.id === ev.id);
-        return match ? { ...ev, dayOrder: match.updatedOrder } : ev;
+      setEvents(prevEvents => {
+        const latestEvents = prevEvents.map(ev => {
+          const match = updatedOrders.find(o => o.id === ev.id);
+          return match ? { ...ev, dayOrder: match.updatedOrder } : ev;
+        });
+        localStorage.setItem('local_school_events', JSON.stringify(latestEvents));
+        return latestEvents;
       });
-      localStorage.setItem('local_school_events', JSON.stringify(latestEvents));
     }
   };
 
@@ -438,13 +442,19 @@ export default function App() {
     try {
       const promptPieces = [
         "너는 학교 교무실 업무를 지원하는 완벽한 AI 비서이다.",
-        "제공되는 텍스트를 정밀 분석하여 학사 일정 정보들을 JSON 형식의 배열로 추출해라. 올해는 2026년이다.",
+        "제공되는 텍스트 하나에는 서로 다른 공지가 1건만 있을 수도 있고, 여러 건이 섞여 있을 수도 있다. 올해는 2026년이다.",
+        "1단계: 먼저 텍스트가 몇 개의 서로 다른 '공지 단위'로 구성되어 있는지 파악하라. 번호(1. 2. 3.), 구분선, 빈 줄, 서로 다른 제목 블록으로 나뉘어 있다면 각각 별개의 공지로 간주한다.",
+        "2단계: 각 공지 단위 안에서, 성격이 서로 다른 날짜(또는 날짜 범위)가 몇 개나 언급되는지 파악하라. '이 날짜가 가리키는 행동이나 사건이 서로 다른가?'를 기준으로 판단한다. 예를 들어 '신청/접수/제출의 마감일'과 '실제 행사/교육/활동이 열리는 날'은 서로 다른 사건이므로 별개의 날짜로 센다. 같은 공지 안에 심사일, 발표일처럼 제3, 제4의 날짜가 더 있다면 그것도 각각 별개의 날짜로 센다.",
+        "3단계: 한 공지 안에 서로 다른 날짜가 N개 있다면, 그 공지에서 N개의 일정 항목을 만든다. 각 항목의 title은 원래 제목에 그 날짜가 가리키는 행동을 짧게 괄호로 덧붙인다(예: '(신청마감)', '(접수기간)', '(심사)', '(발표)' 등 텍스트의 표현을 그대로 살려서 짓는다). 날짜가 실제 행사/활동 자체를 가리키는 항목이라면 원래 제목을 그대로 쓰고 괄호를 붙이지 않는다.",
+        "4단계: 장소, 담당자, 신청방법, 신청인원 등 날짜와 무관하게 공통되는 정보는 그 공지에서 만들어진 모든 일정 항목에 동일하게 채운다.",
+        "한 공지 안에 날짜가 1개뿐이면 항목도 1개만 만든다. 날짜 종류를 억지로 쪼개지 말고, 실제로 서로 다른 사건을 가리킬 때만 나눈다.",
+        "모든 공지에서 만들어진 일정 항목 전체를 하나의 JSON 배열로 응답하라.",
         "오직 아래 명세(배열 형태)만 텍스트로 응답하고, 마크다운 기호(```json)나 설명은 일절 배제하라:",
         "[ { \"title\": \"일정명\", \"startDate\": \"YYYY-MM-DD\", \"endDate\": \"YYYY-MM-DD\", \"startTime\": \"HH:MM\", \"endTime\": \"HH:MM\", \"manager\": \"\", \"location\": \"\", \"applyMethod\": \"\", \"applyCount\": \"\", \"memo\": \"\" } ]"
       ];
 
       const response = await fetch(
-        `[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$){geminiApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -534,7 +544,8 @@ export default function App() {
               extractHexColor={extractHexColor} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setNewEvent={setNewEvent}
               setIsAddModalOpen={setIsAddModalOpen} setSelectedEvent={setSelectedEvent} setIsDetailModalOpen={setIsDetailModalOpen}
               formatDateString={formatDateString} activeSidePanel={activeSidePanel}
-              onEventOrderChange={handleEventOrderChange}
+              onEventOrderChange={handleEventOrderPreview}
+              onEventOrderCommit={handleEventOrderCommit}
             />
 
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}

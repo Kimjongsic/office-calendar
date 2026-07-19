@@ -1,5 +1,5 @@
 // src/components/CalendarBoard.jsx
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X } from 'lucide-react';
 
 export default function CalendarBoard({
@@ -7,7 +7,8 @@ export default function CalendarBoard({
   firstDayIndex, prevDaysInMonth, daysInMonth, filteredEvents, categories, NOTION_PALETTES,
   extractHexColor, selectedDate, setSelectedDate, setNewEvent, setIsAddModalOpen,
   setSelectedEvent, setIsDetailModalOpen, formatDateString, activeSidePanel,
-  onEventOrderChange 
+  onEventOrderChange,   // 드래그 중 화면 미리보기 전용 (로컬 state만 갱신)
+  onEventOrderCommit    // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
 }) {
 
   // 이번 달 마지막 주에 이어지는 다음 달 첫 주의 남은 날짜 계산 공식
@@ -26,6 +27,9 @@ export default function CalendarBoard({
   const [draggedEvent, setDraggedEvent] = useState(null);
   const [draggedDateStr, setDraggedDateStr] = useState(null);
   const [dragOverEventId, setDragOverEventId] = useState(null);
+
+  // 드래그 도중 마지막으로 계산된 순서를 기억해뒀다가, 드래그 종료 시점에 한 번만 Firestore로 커밋
+  const lastOrdersRef = useRef(null);
 
   // 팝업창이 클릭한 날짜 칸 위로 나오도록 절대 좌표(top, left) 정보 추가
   const [morePopupData, setMorePopupData] = useState({ 
@@ -56,6 +60,26 @@ export default function CalendarBoard({
     });
   };
 
+  // 🔑 [최적화] filteredEvents가 바뀔 때만 날짜별로 한 번 그룹핑해두고,
+  // 각 날짜 칸은 이 맵을 조회만 하도록 변경 (매 렌더마다 전체 배열 반복 필터링 방지)
+  const eventsByDate = useMemo(() => {
+    const map = new Map();
+    filteredEvents.forEach(event => {
+      const start = new Date(event.startDate + 'T00:00:00');
+      const end = new Date((event.endDate || event.startDate) + 'T00:00:00');
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        const key = formatDateString(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(event);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    });
+    return map;
+  }, [filteredEvents, formatDateString]);
+
   /**
    * 드래그가 시작될 때 이벤트 데이터와 현재 날짜 문자열을 저장합니다.
    */
@@ -69,6 +93,14 @@ export default function CalendarBoard({
   const handleDragEnd = (e) => {
     e.currentTarget.style.opacity = '1';
     setDragOverEventId(null);
+    setDraggedEvent(null);
+    setDraggedDateStr(null);
+
+    // 🔑 드래그가 끝난 시점에 마지막으로 계산된 순서를 딱 1번만 Firestore에 커밋
+    if (lastOrdersRef.current && onEventOrderCommit) {
+      onEventOrderCommit(lastOrdersRef.current);
+    }
+    lastOrdersRef.current = null;
   };
 
   const handleDragOver = (e) => {
@@ -77,6 +109,7 @@ export default function CalendarBoard({
 
   /**
    * 드래그 도중 다른 카드 영역으로 마우스 포인터가 진입하면 실시간으로 순서 교환(Swap) 계산을 트리거합니다.
+   * 🔑 여기서는 화면 미리보기(onEventOrderChange)만 갱신하고, Firestore 저장은 하지 않음.
    */
   const handleDragEnter = (e, targetEvent, dateStr) => {
     e.preventDefault();
@@ -84,9 +117,7 @@ export default function CalendarBoard({
 
     setDragOverEventId(targetEvent.id);
 
-    const currentDayEvents = filteredEvents.filter(
-      event => dateStr >= event.startDate && dateStr <= (event.endDate || event.startDate)
-    );
+    const currentDayEvents = eventsByDate.get(dateStr) || [];
     
     // 정렬 규칙 반영 함수 호출하여 베이스 추출
     const sortedDayEvents = sortDayEvents(currentDayEvents, dateStr);
@@ -107,8 +138,10 @@ export default function CalendarBoard({
         }
       }));
 
+      lastOrdersRef.current = updatedOrders; // 최종 커밋을 위해 마지막 순서만 기억
+
       if (onEventOrderChange) {
-        onEventOrderChange(updatedOrders);
+        onEventOrderChange(updatedOrders); // 화면은 즉시 갱신 (Firestore 쓰기 없음)
       }
     }
   };
@@ -116,8 +149,6 @@ export default function CalendarBoard({
   const handleDropOnEvent = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setDraggedEvent(null);
-    setDraggedDateStr(null);
     setDragOverEventId(null);
   };
 
@@ -234,9 +265,7 @@ export default function CalendarBoard({
           const prevDateStr = formatDateString(prevYear, prevMonth, prevDayNum);
           const currentDayOfWeek = idx % 7;
           
-          const prevDayEvents = filteredEvents.filter(
-            event => prevDateStr >= event.startDate && prevDateStr <= (event.endDate || event.startDate)
-          );
+          const prevDayEvents = eventsByDate.get(prevDateStr) || [];
 
           // 일관된 순서 로직 통합 적용
           const sortedEvents = sortDayEvents(prevDayEvents, prevDateStr);
@@ -289,9 +318,7 @@ export default function CalendarBoard({
           const dayNum = idx + 1;
           const dateStr = formatDateString(year, month, dayNum);
 
-          const dayEvents = filteredEvents.filter(
-            event => dateStr >= event.startDate && dateStr <= (event.endDate || event.startDate)
-          );
+          const dayEvents = eventsByDate.get(dateStr) || [];
 
           // 일관된 순서 로직 통합 적용 (추가 시 무조건 기존 리스트 밑으로 오도록 보장)
           const sortedEvents = sortDayEvents(dayEvents, dateStr);
@@ -343,9 +370,7 @@ export default function CalendarBoard({
           const nextDateStr = formatDateString(nextYear, nextMonth, nextDayNum);
           const currentDayOfWeek = (firstDayIndex + daysInMonth + idx) % 7;
 
-          const nextDayEvents = filteredEvents.filter(
-            event => nextDateStr >= event.startDate && nextDateStr <= (event.endDate || event.startDate)
-          );
+          const nextDayEvents = eventsByDate.get(nextDateStr) || [];
 
           // 일관된 순서 로직 통합 적용
           const sortedEvents = sortDayEvents(nextDayEvents, nextDateStr);
@@ -425,11 +450,8 @@ export default function CalendarBoard({
 
             {/* 내부 목록 구역 */}
             <div className="flex-1 overflow-y-auto space-y-1 max-h-64 pr-0.5 scrollbar-thin">
-              {/* 🌟 [오류 수정 완료] .then() 문법 오용을 지우고 올바른 함수 래핑 가공 구조로 정상화했습니다. */}
               {sortDayEvents(
-                filteredEvents.filter(
-                  event => morePopupData.dateStr >= event.startDate && morePopupData.dateStr <= (event.endDate || event.startDate)
-                ),
+                eventsByDate.get(morePopupData.dateStr) || [],
                 morePopupData.dateStr
               ).map(event => renderEventCard(event, morePopupData.dateStr))}
             </div>

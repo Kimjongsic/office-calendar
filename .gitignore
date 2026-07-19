@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Environment variables (민감 정보 - 절대 커밋 금지)
+.env
+.env.local
+.env.*.local
+
+# Electron 빌드 산출물
+build_output
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
