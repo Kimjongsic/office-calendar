@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 
 let win;
@@ -49,6 +49,20 @@ ipcMain.on('set-movable', (event, flag) => {
 });
 ipcMain.on('set-opacity', (event, opacityValue) => {
   win.setOpacity(parseFloat(opacityValue));
+});
+
+// 🌐 [기능 추가] 북마크 클릭 시 일렉트론 창이 아닌 실제 크롬/엣지로 주소를 쏘아주는 핸들러
+ipcMain.on('open-external', (event, url) => {
+  if (url) {
+    shell.openExternal(url); // 👈 시스템 작업표시줄 및 크롬 브라우저를 새 창으로 호출
+  }
+});
+
+// 📡 리액트의 setFullScreen 요청을 작업표시줄 유지형 'maximize'로 치환하여 처리
+ipcMain.on('set-fullscreen', (event, flag) => {
+  if (flag && win) {
+    win.maximize(); // 작업표시줄을 가리지 않고 화면에 꽉 채웁니다.
+  }
 });
 
 app.whenReady().then(() => {
