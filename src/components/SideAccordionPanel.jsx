@@ -1,6 +1,6 @@
 // src/components/SideAccordionPanel.jsx
 import React, { useState, useEffect } from 'react';
-import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon } from 'lucide-react';
+import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon, Edit2 } from 'lucide-react';
 // 엑셀 양식 생성 및 업로드 파싱을 위한 SheetJS 임포트
 import * as XLSX from 'xlsx';
 
@@ -22,7 +22,7 @@ export default function SideAccordionPanel({
   activeSidePanel, setActiveSidePanel, selectedDate, activeDayMeal,
   messengerInput, setMessengerInput, handleAnalyzeMessengerText, isAnalyzing, parsedProposals,
   setParsedProposals, categories, NOTION_PALETTES, activeProposalCatDropdownId,
-  setActiveProposalCatDropdownId, handleUpdateProposalCategory, handleAddSingleProposalCard,
+  setActiveProposalCatDropdownId, handleUpdateProposalCategory, handleAddSingleProposalCard, handleEditProposal,
   bookmarks, handleOpenBookmarkUrl, handleDeleteBookmark, newBookmarkTitle,
   setNewBookmarkTitle, newBookmarkUrl, setNewBookmarkUrl, handleAddBookmarkSubmit,
   customTimetables, onUpdateGlobalTimetables 
@@ -95,30 +95,17 @@ export default function SideAccordionPanel({
    */
   const handleCellSave = (dayIdx, periodIdx) => {
     const value = cellInputValue.trim();
-    
-    const copy = { 
-      classes: { ...customTimetables.classes }, 
-      teachers: { ...customTimetables.teachers } 
-    };
+    const bucketKey = timetableTab === 'class' ? 'classes' : 'teachers';
+    const targetKey = timetableTab === 'class' ? selectedClass : selectedTeacher.trim();
+    if (!targetKey) return;
 
-    const applyUpdate = (bucketKey, targetKey) => {
-      const existingGrid = copy[bucketKey][targetKey] || createEmptyGrid();
-      const existingRow = existingGrid[dayIdx] || Array(7).fill('');
-      const updatedRow = [...existingRow];
-      updatedRow[periodIdx] = value;
+    const existingGrid = (customTimetables[bucketKey] && customTimetables[bucketKey][targetKey]) || createEmptyGrid();
+    const existingRow = existingGrid[dayIdx] || Array(7).fill('');
+    const updatedRow = [...existingRow];
+    updatedRow[periodIdx] = value;
+    const updatedGrid = { ...existingGrid, [dayIdx]: updatedRow };
 
-      copy[bucketKey][targetKey] = { ...existingGrid, [dayIdx]: updatedRow };
-    };
-    
-    if (timetableTab === 'class') {
-      if (!selectedClass) return;
-      applyUpdate('classes', selectedClass);
-    } else {
-      if (!selectedTeacher) return;
-      applyUpdate('teachers', selectedTeacher.trim());
-    }
-    
-    onUpdateGlobalTimetables(copy);
+    onUpdateGlobalTimetables(bucketKey, targetKey, updatedGrid); // 🔑 바뀐 반/교사 한 명의 데이터만 전달
     setEditingCell(null);
   };
 
@@ -210,20 +197,15 @@ export default function SideAccordionPanel({
           }
         }
 
-        const copy = { 
-          classes: { ...customTimetables.classes }, 
-          teachers: { ...customTimetables.teachers } 
-        };
+        const bucketKey = timetableTab === 'class' ? 'classes' : 'teachers';
+        onUpdateGlobalTimetables(bucketKey, targetKey, parsedGrid); // 🔑 업로드된 반/교사 데이터만 전달
 
         if (timetableTab === 'class') {
-          copy.classes[targetKey] = parsedGrid;
           setSelectedClass(targetKey);
         } else {
-          copy.teachers[targetKey] = parsedGrid;
           setSelectedTeacher(targetKey);
         }
 
-        onUpdateGlobalTimetables(copy);
         e.target.value = ''; 
       } catch (err) {
         console.error("엑셀 파일 파싱 오류 발생: ", err);
@@ -493,6 +475,12 @@ export default function SideAccordionPanel({
             </div>
             
             <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">메신저 원문 붙여넣기</p>
+                {messengerInput && (
+                  <button type="button" onClick={() => setMessengerInput('')} className="text-[10px] text-gray-400 hover:text-rose-600 underline">전체 삭제</button>
+                )}
+              </div>
               <textarea 
                 rows={8} 
                 placeholder="메신저 본문 전체를 복사하여 붙여넣으세요!" 
@@ -523,15 +511,15 @@ export default function SideAccordionPanel({
                     const hasSelectedCategory = !!proposal.category;
                     return (
                       <div key={proposal.id} className="bg-white border border-[#E9E9E6] rounded-lg p-3 shadow-xs space-y-2.5 hover:border-purple-300 transition-all relative">
-                        <div className="flex items-center justify-between relative">
-                          <div className="relative">
+                        <div className="space-y-1.5">
+                          <div className="relative inline-block">
                             <button 
                               type="button" 
                               onClick={() => setActiveProposalCatDropdownId(activeProposalCatDropdownId === proposal.id ? null : proposal.id)} 
-                              className={`text-[9px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 border ${hasSelectedCategory ? `${theme.bg} ${theme.text} ${theme.border}` : 'bg-amber-50 text-amber-800 border-amber-200 animate-pulse'}`}
+                              className={`text-[9px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 border whitespace-nowrap ${hasSelectedCategory ? `${theme.bg} ${theme.text} ${theme.border}` : 'bg-amber-50 text-amber-800 border-amber-200 animate-pulse'}`}
                             >
                               <span>{proposal.category || '⚠️ 카테고리 선택'}</span>
-                              <ChevronDown className="w-2.5 h-2.5" />
+                              <ChevronDown className="w-2.5 h-2.5 shrink-0" />
                             </button>
                             
                             {activeProposalCatDropdownId === proposal.id && (
@@ -545,12 +533,28 @@ export default function SideAccordionPanel({
                               </div>
                             )}
                           </div>
-                          <span className="text-[9px] text-gray-400 font-bold flex items-center gap-0.5">
-                            <CalendarIcon className="w-2.5 h-2.5 text-gray-300" /> 
-                            {proposal.endDate && proposal.endDate !== proposal.startDate 
-                              ? `${proposal.startDate} ~ ${proposal.endDate}` 
-                              : proposal.startDate}
-                          </span>
+
+                          <div className="flex items-center justify-between gap-2">
+                            <span 
+                              className="text-[10px] text-gray-500 font-bold flex items-center gap-1 min-w-0"
+                              title={proposal.endDate && proposal.endDate !== proposal.startDate ? `${proposal.startDate} ~ ${proposal.endDate}` : proposal.startDate}
+                            >
+                              <CalendarIcon className="w-3 h-3 text-gray-400 shrink-0" /> 
+                              <span className="truncate">
+                                {proposal.endDate && proposal.endDate !== proposal.startDate 
+                                  ? `${proposal.startDate} ~ ${proposal.endDate}` 
+                                  : proposal.startDate}
+                              </span>
+                            </span>
+                            <button 
+                              type="button" 
+                              onClick={() => handleEditProposal(proposal)} 
+                              className="shrink-0 flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-md transition-colors"
+                              title="수정"
+                            >
+                              <Edit2 className="w-3 h-3" /> 수정
+                            </button>
+                          </div>
                         </div>
                         
                         <div className="space-y-1">

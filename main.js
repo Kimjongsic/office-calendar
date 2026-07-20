@@ -32,7 +32,10 @@ function createWindow() {
   });
 
   if (app.isPackaged) {
-    win.loadURL('https://grade-calendar-89b7c.web.app');
+    // 🔑 네트워크 캐시(HTML/JS/CSS)만 비우고 localStorage(북마크, API 키 등)는 보존
+    win.webContents.session.clearCache().then(() => {
+      win.loadURL('https://grade-calendar-89b7c.web.app');
+    });
   } else {
     win.loadURL('http://localhost:5173');
     win.webContents.openDevTools();

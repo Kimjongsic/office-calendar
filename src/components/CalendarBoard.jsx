@@ -340,11 +340,11 @@ export default function CalendarBoard({
                 setIsAddModalOpen(true);
               }}
               className={`group border-r border-b border-[#E9E9E6] p-2 min-h-36 flex flex-col justify-between transition cursor-pointer relative w-full min-w-0 overflow-hidden ${
-                isToday ? 'bg-[#FBF3DB]/30 ring-1 ring-amber-300 ring-inset z-10' : isSelected ? 'bg-slate-50/80' : 'bg-white hover:bg-slate-50/40'
+                isSelected ? 'bg-slate-50/80' : 'bg-white hover:bg-slate-50/40'
               }`}
             >
               <div className="flex justify-between items-center shrink-0">
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isToday ? 'bg-[#FBF3DB] text-[#402A00]' : currentDayOfWeek === 0 ? 'text-rose-500' : currentDayOfWeek === 6 ? 'text-sky-500' : 'text-gray-700'}`}>{dayNum}</span>
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${isToday ? 'bg-amber-400 text-white' : currentDayOfWeek === 0 ? 'text-rose-500' : currentDayOfWeek === 6 ? 'text-sky-500' : 'text-gray-700'}`}>{dayNum}</span>
                 <button onClick={(e) => { e.stopPropagation(); setNewEvent(prev => ({ ...prev, startDate: dateStr, endDate: dateStr })); setIsAddModalOpen(true); }} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-200 rounded transition"><Plus className="w-3.5 h-3.5 text-gray-500" /></button>
               </div>
 

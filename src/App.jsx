@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, initAnonymousAuth } from './firebase';
 // 드래그 앤 드롭 순서 변경의 원자적 일괄 처리를 위해 writeBatch 라이브러리 추가 바인딩
 import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
@@ -126,6 +126,10 @@ export default function App() {
 
   const [newCategoryName, setNewCategoryName] = useState('');
   const [selectedPaletteKey, setSelectedPaletteKey] = useState('red');
+  const [editingCategoryName, setEditingCategoryName] = useState(null); // 🔑 현재 수정 중인 카테고리의 원래 이름
+  const [draggedCategoryName, setDraggedCategoryName] = useState(null); // 🔑 드래그 중인 카테고리명
+  const [dragOverCategoryName, setDragOverCategoryName] = useState(null); // 🔑 현재 호버된 카테고리명 (애니메이션용)
+  const lastCategoryOrderRef = useRef(null); // 🔑 드래그 종료 시 1회만 Firestore에 커밋
   const [noticeFormList, setNoticeFormList] = useState([{ text: '', author: '' }]);
   const [ddayForm, setDdayForm] = useState({ label: '', date: '' });
 
@@ -135,6 +139,7 @@ export default function App() {
 
   const [activeProposalCatDropdownId, setActiveProposalCatDropdownId] = useState(null);
   const [draggedEventId, setDraggedEventId] = useState(null);
+  const [editingProposalId, setEditingProposalId] = useState(null); // 🔑 분석 카드 수정 모드 추적
 
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
   const [isMoveLocked, setIsMovelocked] = useState(false);
@@ -266,12 +271,22 @@ export default function App() {
     });
   }, [syncStatus]);
 
-  // 🌟 [기능 추가] 시간표 행렬이 업데이트되었을 때 클라우드 파이어스토어에 동기화 백업하는 실시간 업데이터 함수
-  const handleUpdateGlobalTimetables = async (nextTimetables) => {
-    setCustomTimetables(nextTimetables);
+  // 🔑 [수정] 문서 전체를 덮어쓰지 않고, 바뀐 반/교사 한 명의 시간표만 부분 병합(merge)
+  // merge:true는 중첩 객체도 필드 단위로 깊게 병합하므로, 다른 반/교사의 데이터는 전혀 건드리지 않음
+  // → 여러 선생님이 동시에 서로 다른 반/교사 시간표를 수정해도 서로 덮어쓰지 않음
+  const handleUpdateGlobalTimetables = async (bucketKey, targetKeyName, gridData) => {
+    setCustomTimetables(prev => ({
+      ...prev,
+      [bucketKey]: { ...(prev[bucketKey] || {}), [targetKeyName]: gridData }
+    }));
+
     if (syncStatus === 'connected' && db) {
       try {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'school_global_timetables'), nextTimetables);
+        await setDoc(
+          doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'school_global_timetables'),
+          { [bucketKey]: { [targetKeyName]: gridData } },
+          { merge: true }
+        );
       } catch (err) {
         console.error("원격 시간표 동기화 실패: ", err);
       }
@@ -356,10 +371,44 @@ export default function App() {
     }
   };
 
+  // 🔑 모달을 닫을 때 폼과 수정모드 상태를 함께 초기화
+  const handleCloseAddModal = () => {
+    setIsAddModalOpen(false);
+    setEditingProposalId(null);
+    setNewEvent({ title: '', category: Object.keys(categories)[0] || '기타', manager: localStorage.getItem('school_calendar_manager') || '', startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '' });
+  };
+
+  // 🔑 AI 분석 카드를 수정 모달에 채워서 열기
+  const handleEditProposal = (proposal) => {
+    setNewEvent({
+      title: proposal.title || '',
+      category: proposal.category || (Object.keys(categories)[0] || '기타'),
+      manager: proposal.manager || '',
+      startDate: proposal.startDate || '',
+      endDate: proposal.endDate || '',
+      startTime: proposal.startTime || '',
+      endTime: proposal.endTime || '',
+      location: proposal.location || '',
+      applyMethod: proposal.applyMethod || '',
+      applyCount: proposal.applyCount || '',
+      memo: proposal.memo || ''
+    });
+    setEditingProposalId(proposal.id);
+    setIsAddModalOpen(true);
+  };
+
   // 일정 생성 데이터 전송 로직
   const handleAddEventSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!newEvent.title.trim() || !newEvent.startDate) return showToast("제목과 시작일은 필수 항목입니다.", "error");
+
+    // 🔑 분석 카드 수정 모드: Firestore에 바로 저장하지 않고 parsedProposals만 갱신
+    if (editingProposalId) {
+      setParsedProposals(prev => prev.map(p => p.id === editingProposalId ? { ...p, ...newEvent } : p));
+      showToast("분석 일정이 수정되었습니다.", "success");
+      handleCloseAddModal();
+      return;
+    }
 
     if (newEvent.manager.trim()) localStorage.setItem('school_calendar_manager', newEvent.manager);
     const payload = { ...newEvent, createdAt: new Date().toISOString(), dayOrder: {} };
@@ -369,8 +418,7 @@ export default function App() {
       showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
     } else { saveLocalEvent({ ...payload, id: crypto.randomUUID() }); }
     
-    setIsAddModalOpen(false);
-    setNewEvent({ title: '', category: Object.keys(categories)[0] || '기타', manager: localStorage.getItem('school_calendar_manager') || '', startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '' });
+    handleCloseAddModal();
   };
 
   const handleUpdateEvent = async () => {
@@ -481,14 +529,56 @@ export default function App() {
     setParsedProposals(prev => prev.filter(p => p.id !== id)); showToast("캘린더에 연동 등록했습니다.", "success");
   };
 
-  // 카테고리 추가/삭제
+  // 카테고리 추가/수정/삭제/순서변경
   const handleAddCategorySubmit = async () => {
     if (!newCategoryName.trim()) return showToast("카테고리명을 입력해 주세요.", "error");
-    if (categories[newCategoryName.trim()]) return showToast("이미 존재하는 카테고리입니다.", "error");
-    const updatedCategories = { ...categories, [newCategoryName.trim()]: NOTION_PALETTES[selectedPaletteKey] };
+    const trimmedName = newCategoryName.trim();
+
+    // 🔑 수정 모드: 기존 카테고리를 클릭해서 들어온 경우
+    if (editingCategoryName) {
+      if (trimmedName !== editingCategoryName && categories[trimmedName]) {
+        return showToast("이미 존재하는 카테고리입니다.", "error");
+      }
+
+      // 순서(key 순서)를 유지하면서 이름/색상만 교체
+      const updatedCategories = {};
+      Object.entries(categories).forEach(([name, styling]) => {
+        if (name === editingCategoryName) {
+          updatedCategories[trimmedName] = NOTION_PALETTES[selectedPaletteKey];
+        } else {
+          updatedCategories[name] = styling;
+        }
+      });
+
+      setCategories(updatedCategories);
+      setNewCategoryName('');
+      setEditingCategoryName(null);
+      if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), updatedCategories);
+      showToast("카테고리가 수정되었습니다.", "success");
+      return;
+    }
+
+    // 신규 추가 모드
+    if (categories[trimmedName]) return showToast("이미 존재하는 카테고리입니다.", "error");
+    const updatedCategories = { ...categories, [trimmedName]: NOTION_PALETTES[selectedPaletteKey] };
     setCategories(updatedCategories); setNewCategoryName('');
     if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), updatedCategories);
     showToast("카테고리가 추가되었습니다.", "success");
+  };
+
+  // 🔑 카테고리를 클릭하면 입력창/색상 선택에 해당 값을 채워 수정 모드로 진입
+  const handleSelectCategoryToEdit = (catName) => {
+    const styling = categories[catName] || NOTION_PALETTES.gray;
+    const matchedPaletteKey = Object.keys(NOTION_PALETTES).find(key => NOTION_PALETTES[key].color === styling.color) || 'red';
+    setNewCategoryName(catName);
+    setSelectedPaletteKey(matchedPaletteKey);
+    setEditingCategoryName(catName);
+  };
+
+  const handleCancelCategoryEdit = () => {
+    setEditingCategoryName(null);
+    setNewCategoryName('');
+    setSelectedPaletteKey('red');
   };
 
   const handleDeleteCategory = async (catName) => {
@@ -496,8 +586,61 @@ export default function App() {
     const { [catName]: deleted, ...rest } = categories;
     deleted // 미사용 경고 처리 방지
     setCategories(rest);
+    if (editingCategoryName === catName) {
+      setEditingCategoryName(null);
+      setNewCategoryName('');
+    }
     if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), rest);
     showToast("카테고리가 삭제되었습니다.", "info");
+  };
+
+  // 🔑 카테고리 목록 드래그 앤 드롭 순서 변경 (일정 카드와 동일한 방식: 호버 시 실시간 스왑, 드래그 종료 시 1회 저장)
+  const handleCategoryDragStart = (e, catName) => {
+    setDraggedCategoryName(catName);
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.style.opacity = '0.3';
+  };
+
+  const handleCategoryDragEnd = async (e) => {
+    e.currentTarget.style.opacity = '1';
+    setDraggedCategoryName(null);
+    setDragOverCategoryName(null);
+
+    if (lastCategoryOrderRef.current && syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), lastCategoryOrderRef.current);
+    }
+    lastCategoryOrderRef.current = null;
+  };
+
+  const handleCategoryDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  // 🔑 드래그 중 다른 카드 위로 진입하면 실시간으로 카드 위치를 교체 (화면만 즉시 갱신)
+  const handleCategoryDragEnter = (e, targetCatName) => {
+    e.preventDefault();
+    if (!draggedCategoryName || draggedCategoryName === targetCatName) return;
+
+    setDragOverCategoryName(targetCatName);
+
+    const entries = Object.entries(categories);
+    const draggedIdx = entries.findIndex(([name]) => name === draggedCategoryName);
+    const targetIdx = entries.findIndex(([name]) => name === targetCatName);
+    if (draggedIdx === -1 || targetIdx === -1 || draggedIdx === targetIdx) return;
+
+    const reordered = [...entries];
+    const [removed] = reordered.splice(draggedIdx, 1);
+    reordered.splice(targetIdx, 0, removed);
+
+    const reorderedCategories = Object.fromEntries(reordered);
+    lastCategoryOrderRef.current = reorderedCategories;
+    setCategories(reorderedCategories);
+  };
+
+  const handleCategoryDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverCategoryName(null);
   };
 
   const saveSingleEventData = async (id, payload) => { if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'events', id), payload, { merge: true }); };
@@ -552,6 +695,7 @@ export default function App() {
               setParsedProposals={setParsedProposals} categories={categories} NOTION_PALETTES={NOTION_PALETTES}
               activeProposalCatDropdownId={activeProposalCatDropdownId} setActiveProposalCatDropdownId={setActiveProposalCatDropdownId}
               handleUpdateProposalCategory={handleUpdateProposalCategory} handleAddSingleProposalCard={handleAddSingleProposalCard}
+              handleEditProposal={handleEditProposal}
               bookmarks={bookmarks} handleOpenBookmarkUrl={handleOpenBookmarkUrl} handleDeleteBookmark={handleDeleteBookmark}
               newBookmarkTitle={newBookmarkTitle} setNewBookmarkTitle={setNewBookmarkTitle} newBookmarkUrl={newBookmarkUrl}
               setNewBookmarkUrl={setNewBookmarkUrl} handleAddBookmarkSubmit={handleAddBookmarkSubmit}
@@ -574,8 +718,10 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
-              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Plus className="w-5 h-5 text-purple-700" /> 신규 일정 등록</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="p-1 hover:bg-gray-100 rounded transition"><X className="w-5 h-5" /></button>
+              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2">
+                <Plus className="w-5 h-5 text-purple-700" /> {editingProposalId ? '분석 일정 수정' : '신규 일정 등록'}
+              </h3>
+              <button onClick={handleCloseAddModal} className="p-1 hover:bg-gray-100 rounded transition"><X className="w-5 h-5" /></button>
             </div>
 
             <form onSubmit={handleAddEventSubmit} className="space-y-4 text-sm">
@@ -623,8 +769,8 @@ export default function App() {
               <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} placeholder="추가 세부 사항을 기재해 주세요." value={newEvent.memo} onChange={(e) => setNewEvent(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
 
               <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
-                <button type="button" onClick={() => setIsAddModalOpen(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
-                <button type="submit" className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">캘린더에 게시</button>
+                <button type="button" onClick={handleCloseAddModal} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                <button type="submit" className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">{editingProposalId ? '수정 완료' : '캘린더에 게시'}</button>
               </div>
             </form>
           </div>
@@ -634,32 +780,114 @@ export default function App() {
       {/* Detail & Action Management Modal */}
       {isDetailModalOpen && selectedEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
+          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
-              <div className="flex items-center gap-2">
-                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${(categories[selectedEvent.category] || NOTION_PALETTES.gray).bg} ${(categories[selectedEvent.category] || NOTION_PALETTES.gray).text}`}>{selectedEvent.category}</span>
-                <span className="text-xs text-gray-400 font-medium">{selectedEvent.startDate} {selectedEvent.endDate && selectedEvent.endDate !== selectedEvent.startDate && `~ ${selectedEvent.endDate}`}</span>
-              </div>
-              <button onClick={() => { setIsDetailModalOpen(false); setSelectedEvent(null); }} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
+              {isEditing ? (
+                <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Edit3 className="w-5 h-5 text-purple-700" /> 일정 수정</h3>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${(categories[selectedEvent.category] || NOTION_PALETTES.gray).bg} ${(categories[selectedEvent.category] || NOTION_PALETTES.gray).text}`}>{selectedEvent.category}</span>
+                  <span className="text-xs text-gray-400 font-medium">{selectedEvent.startDate} {selectedEvent.endDate && selectedEvent.endDate !== selectedEvent.startDate && `~ ${selectedEvent.endDate}`}</span>
+                </div>
+              )}
+              <button onClick={() => { setIsDetailModalOpen(false); setSelectedEvent(null); setIsEditing(false); }} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="space-y-4">
-              <h3 className="text-lg font-extrabold text-[#37352F] break-all">{selectedEvent.title}</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600 bg-[#F7F7F5] p-4 rounded-lg border border-[#E9E9E6]">
-                <div className="flex items-center gap-2"><User className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">담당 교사</span> <span className="text-[#37352F] font-medium">{selectedEvent.manager || '-'}</span></div>
-                <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">시간 구성</span> <span className="text-[#37352F] font-medium">{selectedEvent.startTime || selectedEvent.endTime ? `${selectedEvent.startTime || '미정'} ~ ${selectedEvent.endTime || '미정'}` : '-'}</span></div>
-                <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">장소</span> <span className="text-[#37352F] font-medium">{selectedEvent.location || '-'}</span></div>
-                <div className="flex items-center gap-2"><Users className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">인원 / 대상</span> <span className="text-[#37352F] font-medium">{selectedEvent.applyCount || '-'}</span></div>
+            {isEditing ? (
+              <div className="space-y-4 text-sm">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">일정 제목 *</label>
+                  <input
+                    type="text" required value={editEventForm.title}
+                    onChange={(e) => setEditEventForm(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex flex-col relative">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Palette className="w-3.5 h-3.5 text-gray-400" /> 카테고리 선택 *</label>
+                    <button type="button" onClick={() => setIsEditCatDropdownOpen(!isEditCatDropdownOpen)} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] flex items-center justify-between hover:bg-gray-50 text-left">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-3 h-3 rounded-full ${(categories[editEventForm.category] || NOTION_PALETTES.gray).bg} border ${(categories[editEventForm.category] || NOTION_PALETTES.gray).border}`}></span>
+                        <span className="font-semibold text-xs">{editEventForm.category}</span>
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {isEditCatDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                        {Object.entries(categories).map(([catName, styling]) => (
+                          <button key={catName} type="button" onClick={() => { setEditEventForm(prev => ({ ...prev, category: catName })); setIsEditCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
+                            <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                            <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5 text-gray-400" /> 담당 교사</label><input type="text" value={editEventForm.manager} onChange={(e) => setEditEventForm(prev => ({ ...prev, manager: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label><input type="date" required value={editEventForm.startDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label><input type="date" value={editEventForm.endDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 시작 시간</label><input type="time" value={editEventForm.startTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, startTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 종료 시간</label><input type="time" value={editEventForm.endTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, endTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 장소</label><input type="text" value={editEventForm.location} onChange={(e) => setEditEventForm(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3.5 h-3.5 text-gray-400" /> 신청인원 / 대상</label><input type="text" value={editEventForm.applyCount} onChange={(e) => setEditEventForm(prev => ({ ...prev, applyCount: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                </div>
+
+                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Link className="w-3.5 h-3.5 text-gray-400" /> 신청방법 / 링크</label><input type="text" value={editEventForm.applyMethod} onChange={(e) => setEditEventForm(prev => ({ ...prev, applyMethod: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} value={editEventForm.memo} onChange={(e) => setEditEventForm(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+
+                <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
+                  <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                  <button type="button" onClick={handleUpdateEvent} className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">수정 완료</button>
+                </div>
               </div>
-              <div className="space-y-1">
-                <p className="text-xs font-bold text-gray-400 uppercase">상세 메모</p>
-                <div className="bg-white border border-[#E9E9E6] p-3 rounded-md text-sm text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto break-all">{selectedEvent.memo || '등록된 내용이 없습니다.'}</div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between border-t border-[#E9E9E6] pt-4">
-              <div className="text-[11px] text-gray-400">공유형 모드 라이브 상태입니다.</div>
-              <button onClick={() => handleDeleteEvent(selectedEvent.id)} className="flex items-center gap-1 border border-rose-200 text-rose-600 px-3 py-1.5 rounded-md text-xs font-semibold"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
-            </div>
+            ) : (
+              <>
+                <div className="space-y-4">
+                  <h3 className="text-lg font-extrabold text-[#37352F] break-all">{selectedEvent.title}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600 bg-[#F7F7F5] p-4 rounded-lg border border-[#E9E9E6]">
+                    <div className="flex items-center gap-2"><User className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">담당 교사</span> <span className="text-[#37352F] font-medium">{selectedEvent.manager || '-'}</span></div>
+                    <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">시간 구성</span> <span className="text-[#37352F] font-medium">{selectedEvent.startTime || selectedEvent.endTime ? `${selectedEvent.startTime || '미정'} ~ ${selectedEvent.endTime || '미정'}` : '-'}</span></div>
+                    <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">장소</span> <span className="text-[#37352F] font-medium">{selectedEvent.location || '-'}</span></div>
+                    <div className="flex items-center gap-2"><Users className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">인원 / 대상</span> <span className="text-[#37352F] font-medium">{selectedEvent.applyCount || '-'}</span></div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-gray-400 uppercase">상세 메모</p>
+                    <div className="bg-white border border-[#E9E9E6] p-3 rounded-md text-sm text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto break-all">{selectedEvent.memo || '등록된 내용이 없습니다.'}</div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between border-t border-[#E9E9E6] pt-4">
+                  <div className="text-[11px] text-gray-400">공유형 모드 라이브 상태입니다.</div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setEditEventForm({
+                          id: selectedEvent.id,
+                          title: selectedEvent.title || '',
+                          category: selectedEvent.category || (Object.keys(categories)[0] || '기타'),
+                          manager: selectedEvent.manager || '',
+                          startDate: selectedEvent.startDate || '',
+                          endDate: selectedEvent.endDate || '',
+                          startTime: selectedEvent.startTime || '',
+                          endTime: selectedEvent.endTime || '',
+                          location: selectedEvent.location || '',
+                          applyMethod: selectedEvent.applyMethod || '',
+                          applyCount: selectedEvent.applyCount || '',
+                          memo: selectedEvent.memo || ''
+                        });
+                        setIsEditing(true);
+                      }}
+                      className="flex items-center gap-1 border border-purple-200 text-purple-700 px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-purple-50"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" /> 수정
+                    </button>
+                    <button onClick={() => handleDeleteEvent(selectedEvent.id)} className="flex items-center gap-1 border border-rose-200 text-rose-600 px-3 py-1.5 rounded-md text-xs font-semibold"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -683,7 +911,9 @@ export default function App() {
             </div>
 
             <div className="bg-[#F7F7F5] p-3.5 rounded-lg border border-[#E9E9E6] space-y-3">
-              <p className="text-xs font-bold text-gray-600">새 카테고리 추가</p>
+              <p className="text-xs font-bold text-gray-600">
+                {editingCategoryName ? `'${editingCategoryName}' 카테고리 수정` : '새 카테고리 추가'}
+              </p>
               <input type="text" placeholder="카테고리 명칭 입력" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400" />
 
               <div className="space-y-1.5">
@@ -697,20 +927,52 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <button onClick={handleAddCategorySubmit} className="w-full py-2 bg-emerald-700 text-white rounded text-xs font-bold">+ 등록</button>
+
+              <div className="flex gap-2">
+                {editingCategoryName && (
+                  <button type="button" onClick={handleCancelCategoryEdit} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded text-xs font-bold hover:bg-gray-100">취소</button>
+                )}
+                <button onClick={handleAddCategorySubmit} className={`flex-1 py-2 text-white rounded text-xs font-bold ${editingCategoryName ? 'bg-purple-700 hover:bg-purple-800' : 'bg-emerald-700 hover:bg-emerald-800'}`}>
+                  {editingCategoryName ? '수정 완료' : '+ 등록'}
+                </button>
+              </div>
 
               <div className="pt-3 border-t border-[#E9E9E6] space-y-1.5">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">저장된 카테고리 ({Object.keys(categories).length}개)</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">저장된 카테고리 ({Object.keys(categories).length}개) · 드래그로 순서 변경</p>
                 <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-                  {Object.entries(categories).map(([catName, styling]) => (
-                    <div key={catName} className="flex items-center justify-between bg-white border border-[#E9E9E6] rounded-md px-2.5 py-1.5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
-                        <span className="text-xs font-semibold text-gray-700 truncate School-truncate">{catName}</span>
+                  {Object.entries(categories).map(([catName, styling]) => {
+                    const isHovered = dragOverCategoryName === catName;
+                    return (
+                      <div 
+                        key={catName}
+                        draggable="true"
+                        onDragStart={(e) => handleCategoryDragStart(e, catName)}
+                        onDragEnd={handleCategoryDragEnd}
+                        onDragOver={handleCategoryDragOver}
+                        onDragEnter={(e) => handleCategoryDragEnter(e, catName)}
+                        onDrop={handleCategoryDrop}
+                        onClick={() => handleSelectCategoryToEdit(catName)}
+                        className={`flex items-center justify-between bg-white border rounded-md px-2.5 py-1.5 cursor-pointer
+                          transition-all duration-300 transform origin-center
+                          ${isHovered ? 'scale-[1.03] -translate-y-0.5 shadow-md z-20' : 'scale-100 translate-y-0'}
+                          active:cursor-grabbing
+                          ${editingCategoryName === catName ? 'border-purple-400 ring-1 ring-purple-200' : 'border-[#E9E9E6] hover:border-purple-200'}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Menu className="w-3.5 h-3.5 text-gray-300 shrink-0 cursor-grab" />
+                          <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                          <span className="text-xs font-semibold text-gray-700 truncate">{catName}</span>
+                        </div>
+                        <button 
+                          type="button" 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteCategory(catName); }} 
+                          className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      <button type="button" onClick={() => handleDeleteCategory(catName)} className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
