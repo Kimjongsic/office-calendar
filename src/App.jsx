@@ -154,11 +154,7 @@ export default function App() {
 
   const [bookmarks, setBookmarks] = useState(() => {
     const saved = localStorage.getItem('school_calendar_bookmarks');
-    return saved ? JSON.parse(saved) : [
-      { id: '1', title: '나이스(NEIS) 교원업무', url: 'https://neis.go.kr' },
-      { id: '2', title: '리로스쿨 학사관리', url: 'https://riroschool.kr' },
-      { id: '3', title: '에듀넷 티-클리어', url: 'https://www.edunet.net' }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
   const [newBookmarkTitle, setNewBookmarkTitle] = useState('');
   const [newBookmarkUrl, setNewBookmarkUrl] = useState('');
