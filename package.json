@@ -39,7 +39,7 @@
   },
   "build": {
     "appId": "com.solnae.office-calendar",
-    "productName": "교무실 공유 캘린더",
+    "productName": "솔내고 2학년 공유 캘린더",
     "directories": {
       "output": "build_output"
     },
