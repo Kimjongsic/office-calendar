@@ -36,7 +36,8 @@ import {
   Unlock,
   Eye,
   Utensils,
-  Bookmark
+  Bookmark,
+  Wallet
 } from 'lucide-react';
 
 import DashboardHeader from './components/DashboardHeader';
@@ -778,6 +779,7 @@ export default function App() {
           <button type="button" onClick={() => toggleSidePanel('timetable')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'timetable' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><CalendarIcon className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('ai')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'ai' ? 'bg-purple-50 border-purple-200 text-purple-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Sparkles className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'bookmark' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'salary' ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
         </div>
       </div>
 

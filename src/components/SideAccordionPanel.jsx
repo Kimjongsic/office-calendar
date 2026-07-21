@@ -1,6 +1,19 @@
 // src/components/SideAccordionPanel.jsx
-import React, { useState, useEffect } from 'react';
-import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon, Edit2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet } from 'lucide-react';
+
+// 🔑 2026년 유치원·초등학교·중학교·고등학교 교원 봉급표 (월지급액, 단위: 원)
+// 출처: 인사혁신처 고시. 매년 갱신되니 새 봉급표 발표 시 이 배열만 교체하면 됩니다.
+const TEACHER_SALARY_TABLE = {
+  1: 2041500,  2: 2103300,  3: 2166000,  4: 2228500,  5: 2291500,
+  6: 2354400,  7: 2416600,  8: 2478600,  9: 2495600, 10: 2516700,
+  11: 2538300, 12: 2585900, 13: 2657500, 14: 2773700, 15: 2889700,
+  16: 3006200, 17: 3121000, 18: 3241500, 19: 3361200, 20: 3481000,
+  21: 3600700, 22: 3733600, 23: 3865300, 24: 3997500, 25: 4129400,
+  26: 4261900, 27: 4400100, 28: 4538000, 29: 4682100, 30: 4826800,
+  31: 4971100, 32: 5115200, 33: 5261600, 34: 5407500, 35: 5553600,
+  36: 5699100, 37: 5825700, 38: 5952500, 39: 6079500, 40: 6205700,
+};
 // 엑셀 양식 생성 및 업로드 파싱을 위한 SheetJS 임포트
 import * as XLSX from 'xlsx';
 
@@ -86,6 +99,128 @@ export default function SideAccordionPanel({
     const timer = setInterval(checkCurrentPeriodAndDay, 60000); 
     return () => clearInterval(timer);
   }, [activeSidePanel]);
+
+  // 🔑 [신규] 급여 실시간 누적 — 개인 정보라 localStorage(이 PC)에만 저장, 공유 안 함
+  const [teacherGrade, setTeacherGrade] = useState(() => localStorage.getItem('teacher_grade') || '');
+  const [tempGradeInput, setTempGradeInput] = useState('');
+  const [nowTick, setNowTick] = useState(() => new Date());
+
+  useEffect(() => {
+    if (teacherGrade) localStorage.setItem('teacher_grade', teacherGrade);
+    else localStorage.removeItem('teacher_grade');
+  }, [teacherGrade]);
+
+  // 급여 탭이 열려있을 때만 1초마다 갱신 (다른 탭 볼 땐 불필요한 타이머 안 돌림)
+  useEffect(() => {
+    if (activeSidePanel !== 'salary') return;
+    const timer = setInterval(() => setNowTick(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, [activeSidePanel]);
+
+  const handleSaveGrade = () => {
+    const cleaned = tempGradeInput.replace(/[^0-9]/g, '');
+    const gradeNum = parseInt(cleaned, 10);
+    if (!gradeNum || gradeNum < 1 || gradeNum > 40) return;
+    setTeacherGrade(String(gradeNum));
+  };
+
+  const handleClearGrade = () => {
+    setTeacherGrade('');
+    setTempGradeInput('');
+  };
+
+  // 🔑 주5일(월~금), 08:30~16:30(8시간) 근무 기준으로 시급/누적액 계산
+  // 급여기간: 매달 17일 ~ 다음달 16일. 17일이 지나면 자동으로 새 주기 시작(자연 초기화)
+  const salaryStats = useMemo(() => {
+    const gradeNum = parseInt(teacherGrade, 10);
+    const salaryNum = TEACHER_SALARY_TABLE[gradeNum];
+    if (!salaryNum) return null;
+
+    const now = nowTick;
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+
+    let periodStart, periodEnd;
+    if (day >= 17) {
+      periodStart = new Date(year, month, 17, 0, 0, 0, 0);
+      periodEnd = new Date(year, month + 1, 17, 0, 0, 0, 0);
+    } else {
+      periodStart = new Date(year, month - 1, 17, 0, 0, 0, 0);
+      periodEnd = new Date(year, month, 17, 0, 0, 0, 0);
+    }
+
+    let workdayCount = 0;
+    const dayCursor = new Date(periodStart);
+    while (dayCursor < periodEnd) {
+      const dow = dayCursor.getDay();
+      if (dow >= 1 && dow <= 5) workdayCount += 1;
+      dayCursor.setDate(dayCursor.getDate() + 1);
+    }
+    if (workdayCount === 0) return null;
+
+    const totalWorkHours = workdayCount * 8;
+    const hourlyRate = salaryNum / totalWorkHours;
+
+    let elapsedWorkHours = 0;
+    const cursor = new Date(periodStart);
+    while (cursor < periodEnd && cursor <= now) {
+      const dow = cursor.getDay();
+      if (dow >= 1 && dow <= 5) {
+        const workStart = new Date(cursor); workStart.setHours(8, 30, 0, 0);
+        const workEnd = new Date(cursor); workEnd.setHours(16, 30, 0, 0);
+        if (now >= workEnd) {
+          elapsedWorkHours += 8;
+        } else if (now > workStart) {
+          elapsedWorkHours += (now - workStart) / (1000 * 60 * 60);
+        }
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    // 🔑 누적 금액은 30분 정시(=근무 1시간 완료 시점)마다만 갱신되도록 완료된 시간 단위로 계산
+    // (게이지는 계속 부드럽게 채워지지만, 숫자는 정시에만 "차르륵" 바뀜)
+    const earned = hourlyRate * Math.floor(elapsedWorkHours);
+
+    // 🔑 오늘 게이지용: 08:30~16:30 기준 오늘 하루 진행도 (0~8시간)
+    const dow = now.getDay();
+    let todayElapsed = 0;
+    if (dow >= 1 && dow <= 5) {
+      const workStart = new Date(now); workStart.setHours(8, 30, 0, 0);
+      const workEnd = new Date(now); workEnd.setHours(16, 30, 0, 0);
+      if (now >= workEnd) todayElapsed = 8;
+      else if (now > workStart) todayElapsed = (now - workStart) / (1000 * 60 * 60);
+    }
+
+    return { hourlyRate, earned, salaryNum, workdayCount, elapsedWorkHours, todayElapsed };
+  }, [teacherGrade, nowTick]);
+
+  // 🔑 누적 금액이 바뀔 때마다 이전 값에서 새 값까지 숫자가 빠르게 굴러가며(차르륵) 올라가는 카운트업 애니메이션
+  const [displayedEarned, setDisplayedEarned] = useState(0);
+  const displayedEarnedRef = useRef(0);
+  const rollAnimRef = useRef(null);
+
+  useEffect(() => {
+    if (!salaryStats) return;
+    const target = Math.floor(salaryStats.earned);
+    const start = displayedEarnedRef.current;
+    if (target === start) return;
+
+    if (rollAnimRef.current) cancelAnimationFrame(rollAnimRef.current);
+    const startTime = performance.now();
+    const duration = 650;
+
+    const step = (now) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out
+      const value = Math.round(start + (target - start) * eased);
+      displayedEarnedRef.current = value;
+      setDisplayedEarned(value);
+      if (t < 1) rollAnimRef.current = requestAnimationFrame(step);
+    };
+    rollAnimRef.current = requestAnimationFrame(step);
+    return () => { if (rollAnimRef.current) cancelAnimationFrame(rollAnimRef.current); };
+  }, [salaryStats?.earned]);
 
   if (!activeSidePanel) return null;
 
@@ -635,6 +770,110 @@ export default function SideAccordionPanel({
               <input type="text" placeholder="URL 주소" value={newBookmarkUrl} onChange={(e) => setNewBookmarkUrl(e.target.value)} className="w-full py-2 px-2.5 border border-[#E9E9E6] rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
               <button type="submit" className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm">북마크 추가</button>
             </form>
+          </div>
+        )}
+
+        {/* ==================== 5. 시급 누적 패널 ==================== */}
+        {activeSidePanel === 'salary' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
+              <div className="p-1.5 bg-amber-50 text-amber-700 rounded-lg"><Wallet className="w-4 h-4" /></div>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-gray-700">오늘도 적립 중 💰</h3>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">내 호봉</label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="예: 15"
+                  value={tempGradeInput || teacherGrade}
+                  onChange={(e) => setTempGradeInput(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveGrade(); }}
+                  className="flex-1 p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-400"
+                />
+                <button onClick={handleSaveGrade} className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-md text-xs font-bold">저장</button>
+                {teacherGrade && (
+                  <button onClick={handleClearGrade} className="px-3 py-2 border border-gray-200 text-gray-500 rounded-md text-xs font-bold hover:bg-gray-50">삭제</button>
+                )}
+              </div>
+              <p className="text-[10px] text-gray-400 leading-snug">1~40호봉 사이로 입력하세요. 이 값은 이 컴퓨터에만 저장되고 다른 선생님과 공유되지 않습니다.</p>
+            </div>
+
+            <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4">
+              {salaryStats ? (
+                <div className="flex items-center gap-3" style={{ gap: '1.5rem' }}>
+                  {/* 🔑 왼쪽: 급여기간 전체 근무일 게이지 (1일 = 1칸) */}
+                  <svg width="28" height="120" viewBox="0 0 28 120" className="shrink-0">
+                    <rect x="1" y="1" width="26" height="118" rx="6" fill="#FFFFFF" stroke="#FCD34D" strokeWidth="2" />
+                    {Array.from({ length: salaryStats.workdayCount }).map((_, idx) => {
+                      const segH = 110 / salaryStats.workdayCount;
+                      const gap = Math.min(1.2, segH * 0.15);
+                      const y = 114 - (idx + 1) * segH + gap / 2;
+                      const fillLevel = Math.min(1, Math.max(0, (salaryStats.elapsedWorkHours - idx * 8) / 8));
+
+                      if (fillLevel <= 0) {
+                        return <rect key={idx} x="4" y={y} width="20" height={segH - gap} rx="1.2" fill="#FEF3C7" />;
+                      }
+                      if (fillLevel >= 1) {
+                        return <rect key={idx} x="4" y={y} width="20" height={segH - gap} rx="1.2" fill="#F59E0B" />;
+                      }
+                      const partialH = (segH - gap) * fillLevel;
+                      return (
+                        <g key={idx}>
+                          <rect x="4" y={y} width="20" height={segH - gap} rx="1.2" fill="#FEF3C7" />
+                          <rect x="4" y={y + (segH - gap) - partialH} width="20" height={partialH} rx="1.2" fill="#FBBF24" />
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  {/* 🔑 오른쪽: 오늘 근무시간 게이지 (08:30~16:30, 1시간 = 1칸) */}
+                  <svg width="16" height="120" viewBox="0 0 16 120" className="shrink-0">
+                    <rect x="1" y="1" width="14" height="118" rx="5" fill="#FFFFFF" stroke="#FCD34D" strokeWidth="2" />
+                    {Array.from({ length: 8 }).map((_, idx) => {
+                      const segH = 110 / 8;
+                      const gap = 1.3;
+                      const y = 114 - (idx + 1) * segH + gap / 2;
+                      const fillLevel = Math.min(1, Math.max(0, salaryStats.todayElapsed - idx));
+
+                      if (fillLevel <= 0) {
+                        return <rect key={idx} x="3" y={y} width="10" height={segH - gap} rx="1.3" fill="#FEF3C7" />;
+                      }
+                      if (fillLevel >= 1) {
+                        return <rect key={idx} x="3" y={y} width="10" height={segH - gap} rx="1.3" fill="#F59E0B" />;
+                      }
+                      const partialH = (segH - gap) * fillLevel;
+                      return (
+                        <g key={idx}>
+                          <rect x="3" y={y} width="10" height={segH - gap} rx="1.3" fill="#FEF3C7" />
+                          <rect x="3" y={y + (segH - gap) - partialH} width="10" height={partialH} rx="1.3" fill="#FBBF24" />
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  <div className="min-w-0 flex-1 flex flex-col items-center justify-center text-center">
+                    <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">이번 급여기간 누적</p>
+                    <p className="text-2xl font-black text-amber-700 tabular-nums truncate">
+                      {displayedEarned.toLocaleString()}원
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 py-4 text-center">호봉을 입력하면 실시간 누적 금액이 표시됩니다.</p>
+              )}
+            </div>
+
+            <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-xl p-3 space-y-1 text-[10px] text-gray-500 leading-relaxed">
+              <p className="font-bold text-gray-600 flex items-center gap-1"><Info className="w-3 h-3 text-amber-500 shrink-0" /> 계산 기준</p>
+              <p>· 평일(월~금) 08:30~16:30 근무시간에만 누적됩니다.</p>
+              <p>· 매달 17일에 급여기간이 자동으로 새로 시작됩니다.</p>
+              <p>· 본봉(세전, 수당 제외) 기준의 재미용 참고 수치입니다.</p>
+            </div>
           </div>
         )}
 
