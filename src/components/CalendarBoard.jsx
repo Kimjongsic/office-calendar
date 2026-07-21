@@ -1,6 +1,6 @@
 // src/components/CalendarBoard.jsx
-import React, { useState, useRef, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X } from 'lucide-react';
+import React, { useState, useRef, useMemo, useLayoutEffect } from 'react';
+import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X, Calendar as CalendarIcon } from 'lucide-react';
 
 export default function CalendarBoard({
   year, month, handlePrevMonth, handleToday, handleNextMonth, setIsCategoryManageOpen,
@@ -8,7 +8,9 @@ export default function CalendarBoard({
   extractHexColor, selectedDate, setSelectedDate, setNewEvent, setIsAddModalOpen,
   setSelectedEvent, setIsDetailModalOpen, formatDateString, activeSidePanel,
   onEventOrderChange,   // 드래그 중 화면 미리보기 전용 (로컬 state만 갱신)
-  onEventOrderCommit    // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
+  onEventOrderCommit,   // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
+  calendarList, currentCalendarId, isCalendarSwitcherOpen, setIsCalendarSwitcherOpen,
+  newCalendarName, setNewCalendarName, handleCreateCalendar, handleDeleteCalendarEntry, handleSwitchCalendar
 }) {
 
   // 이번 달 마지막 주에 이어지는 다음 달 첫 주의 남은 날짜 계산 공식
@@ -35,6 +37,32 @@ export default function CalendarBoard({
   const [morePopupData, setMorePopupData] = useState({ 
     isOpen: false, dateStr: '', dayName: '', dayNum: null, top: 0, left: 0 
   });
+  const morePopupRef = useRef(null);
+
+  // 🔑 팝업이 열린 뒤 실제 렌더링된 크기를 측정해서, 화면 아래/오른쪽으로 넘치면
+  // 화면 안쪽으로 위치를 자동 보정 (더보기 목록이 길어져도 항상 전체가 보이도록)
+  useLayoutEffect(() => {
+    if (!morePopupData.isOpen || !morePopupRef.current) return;
+
+    const margin = 12;
+    const rect = morePopupRef.current.getBoundingClientRect();
+    let adjustedTop = morePopupData.top;
+    let adjustedLeft = morePopupData.left;
+
+    if (rect.bottom > window.innerHeight - margin) {
+      adjustedTop = Math.max(margin, window.innerHeight - rect.height - margin);
+    }
+    if (rect.right > window.innerWidth - margin) {
+      adjustedLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+    }
+    if (adjustedTop < margin) adjustedTop = margin;
+    if (adjustedLeft < margin) adjustedLeft = margin;
+
+    if (adjustedTop !== morePopupData.top || adjustedLeft !== morePopupData.left) {
+      setMorePopupData(prev => ({ ...prev, top: adjustedTop, left: adjustedLeft }));
+    }
+    // 팝업이 새로 열릴 때(dateStr 변경)만 측정 — top/left 보정으로 인한 재실행 루프 방지
+  }, [morePopupData.isOpen, morePopupData.dateStr]);
 
   /**
    * 일정을 추가하면 기존 일정을 침범하지 않고 무조건 최하단에 순차 적재되도록 만드는 핵심 헬퍼 함수
@@ -239,6 +267,56 @@ export default function CalendarBoard({
             <button onClick={handleToday} className="px-2 py-0.5 text-xs font-semibold hover:bg-white rounded-sm transition mx-1">오늘</button>
             <button onClick={handleNextMonth} className="p-1 hover:bg-white rounded-sm transition"><ChevronRight className="w-4 h-4" /></button>
           </div>
+
+          {/* 🔑 [신규] 캘린더 선택 탭 */}
+          <div className="flex items-center gap-1 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg overflow-x-auto max-w-xs scrollbar-none">
+            {calendarList.map((cal) => (
+              <div key={cal.id} className="relative group/tab shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchCalendar(cal.id)}
+                  className={`px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap transition-colors duration-150 ${cal.id === currentCalendarId ? 'bg-white text-[#37352F] shadow-xs border border-[#E9E9E6]' : 'border border-transparent text-gray-400 hover:text-gray-700'}`}
+                >
+                  <CalendarIcon className="w-3.5 h-3.5" /> {cal.name}
+                </button>
+                {calendarList.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleDeleteCalendarEntry(cal.id); }}
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-gray-200 rounded-full text-gray-400 hover:text-rose-600 hover:border-rose-300 items-center justify-center hidden group-hover/tab:flex shadow-xs"
+                    title="목록에서 제거"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsCalendarSwitcherOpen(!isCalendarSwitcherOpen)}
+                className="px-2 py-1.5 text-gray-400 hover:text-purple-700 hover:bg-white rounded-md transition"
+                title="새 캘린더 추가"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              {isCalendarSwitcherOpen && (
+                <div className="absolute left-0 mt-1 w-56 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-2 flex gap-1.5">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="새 캘린더 이름"
+                    value={newCalendarName}
+                    onChange={(e) => setNewCalendarName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleCreateCalendar(); }}
+                    className="flex-1 min-w-0 px-2 py-1.5 border border-[#E9E9E6] rounded text-xs bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
+                  />
+                  <button type="button" onClick={handleCreateCalendar} className="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded text-xs font-bold shrink-0">추가</button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
         <button onClick={() => setIsCategoryManageOpen(true)} className="p-2 hover:bg-[#F7F7F5] text-gray-600 rounded-lg border border-[#E9E9E6] transition flex items-center gap-1.5 text-xs font-bold">
           <Settings className="w-4 h-4" /> <span>설정</span>
@@ -427,10 +505,12 @@ export default function CalendarBoard({
           onClick={() => setMorePopupData({ isOpen: false, dateStr: '', dayName: '', dayNum: null, top: 0, left: 0 })}
         >
           <div 
+            ref={morePopupRef}
             className="fixed bg-white border border-[#E9E9E6] rounded-3xl p-5 w-64 shadow-2xl flex flex-col animate-in zoom-in-95 duration-150 z-50"
             style={{ 
               top: `${morePopupData.top}px`, 
-              left: `${morePopupData.left}px` 
+              left: `${morePopupData.left}px`,
+              maxHeight: 'calc(100vh - 24px)'
             }}
             onClick={(e) => e.stopPropagation()} 
           >

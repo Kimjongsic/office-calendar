@@ -62,6 +62,15 @@ const extractHexColor = (className) => {
 export default function App() {
   const appId = 'notion-school-calendar';
 
+  // 🔑 [신규] 캘린더 ID에 따라 이벤트가 저장될 Firestore 컬렉션을 반환
+  // 'default'(기존 캘린더)는 기존 경로를 그대로 사용해 데이터 이전이 필요 없도록 함
+  const getEventsCollectionRef = (calendarId) => {
+    if (!calendarId || calendarId === 'default') {
+      return collection(db, 'artifacts', appId, 'public', 'data', 'events');
+    }
+    return collection(db, 'artifacts', appId, 'public', 'data', 'calendars', calendarId, 'events');
+  };
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
 
@@ -77,6 +86,12 @@ export default function App() {
 
   const [events, setEvents] = useState([]);
   const [syncStatus, setSyncStatus] = useState('initializing');
+
+  // 🔑 [신규] 여러 개의 독립된 공유 캘린더 관리
+  const [calendarList, setCalendarList] = useState([{ id: 'default', name: '2학년실 캘린더' }]);
+  const [currentCalendarId, setCurrentCalendarId] = useState('default');
+  const [isCalendarSwitcherOpen, setIsCalendarSwitcherOpen] = useState(false);
+  const [newCalendarName, setNewCalendarName] = useState('');
 
   const [categories, setCategories] = useState({
     '교무회의': NOTION_PALETTES.red,
@@ -129,6 +144,7 @@ export default function App() {
   const [editingCategoryName, setEditingCategoryName] = useState(null); // 🔑 현재 수정 중인 카테고리의 원래 이름
   const [draggedCategoryName, setDraggedCategoryName] = useState(null); // 🔑 드래그 중인 카테고리명
   const [dragOverCategoryName, setDragOverCategoryName] = useState(null); // 🔑 현재 호버된 카테고리명 (애니메이션용)
+  const [categoryOrder, setCategoryOrder] = useState([]); // 🔑 카테고리 표시 순서(Firestore 맵은 순서 보장 안 되므로 배열로 별도 관리)
   const lastCategoryOrderRef = useRef(null); // 🔑 드래그 종료 시 1회만 Firestore에 커밋
   const [noticeFormList, setNoticeFormList] = useState([{ text: '', author: '' }]);
   const [ddayForm, setDdayForm] = useState({ label: '', date: '' });
@@ -225,16 +241,37 @@ export default function App() {
 
   useEffect(() => {
     if (syncStatus !== 'connected' || !db) return;
-    return onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'events'), (snapshot) => {
+    return onSnapshot(getEventsCollectionRef(currentCalendarId), (snapshot) => {
       const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
       setEvents(items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
+    });
+  }, [syncStatus, currentCalendarId]);
+
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), (snapshot) => {
+      const savedList = snapshot.exists() && Array.isArray(snapshot.data().items) ? snapshot.data().items : [];
+      const hasDefault = savedList.some(c => c.id === 'default');
+      const mergedList = hasDefault ? savedList : [{ id: 'default', name: '2학년실 캘린더' }, ...savedList];
+      setCalendarList(mergedList);
+      if (!hasDefault) {
+        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), { items: mergedList });
+      }
     });
   }, [syncStatus]);
 
   useEffect(() => {
     if (syncStatus !== 'connected' || !db) return;
     return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), (snapshot) => {
-      if (snapshot.exists()) setCategories(snapshot.data());
+      if (!snapshot.exists()) return;
+      const { __order, ...categoryMap } = snapshot.data();
+      setCategories(categoryMap);
+
+      // 저장된 순서 배열 중 실제 존재하는 카테고리만 남기고, 순서 배열에 없는 새 카테고리는 뒤에 추가
+      const savedOrder = Array.isArray(__order) ? __order : [];
+      const validOrder = savedOrder.filter(name => categoryMap[name]);
+      const missingNames = Object.keys(categoryMap).filter(name => !validOrder.includes(name));
+      setCategoryOrder([...validOrder, ...missingNames]);
     });
   }, [syncStatus]);
 
@@ -337,6 +374,38 @@ export default function App() {
   const handleToday = () => { setCurrentDate(new Date()); setSelectedDate(new Date()); };
   const toggleSidePanel = (panelName) => setActiveSidePanel(activeSidePanel === panelName ? null : panelName);
 
+  // 🔑 [신규] 캘린더 생성/삭제/전환
+  const handleCreateCalendar = async () => {
+    const trimmed = newCalendarName.trim();
+    if (!trimmed) return showToast("캘린더 이름을 입력해 주세요.", "error");
+    const newCalendar = { id: crypto.randomUUID(), name: trimmed };
+    const updatedList = [...calendarList, newCalendar];
+    setCalendarList(updatedList);
+    setNewCalendarName('');
+    setCurrentCalendarId(newCalendar.id);
+    setIsCalendarSwitcherOpen(false);
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), { items: updatedList });
+    }
+    showToast(`'${trimmed}' 캘린더가 생성되었습니다.`, "success");
+  };
+
+  const handleDeleteCalendarEntry = async (calendarId) => {
+    if (calendarList.length <= 1) return showToast("최소 1개 이상의 캘린더가 유지되어야 합니다.", "error");
+    const updatedList = calendarList.filter(c => c.id !== calendarId);
+    setCalendarList(updatedList);
+    if (currentCalendarId === calendarId) setCurrentCalendarId(updatedList[0].id);
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), { items: updatedList });
+    }
+    showToast("캘린더가 목록에서 제거되었습니다. (기존 일정 데이터는 보존됩니다)", "info");
+  };
+
+  const handleSwitchCalendar = (calendarId) => {
+    setCurrentCalendarId(calendarId);
+    setIsCalendarSwitcherOpen(false);
+  };
+
   // 🔑 [최적화] 드래그 중 화면 미리보기 전용: 로컬 state만 즉시 갱신, Firestore 쓰기 없음
   const handleEventOrderPreview = (updatedOrders) => {
     setEvents(prevEvents => prevEvents.map(ev => {
@@ -350,8 +419,9 @@ export default function App() {
     if (syncStatus === 'connected' && db) {
       try {
         const batch = writeBatch(db);
+        const eventsRef = getEventsCollectionRef(currentCalendarId);
         updatedOrders.forEach(item => {
-          const eventDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', item.id);
+          const eventDocRef = doc(eventsRef, item.id);
           batch.update(eventDocRef, { dayOrder: item.updatedOrder });
         });
         await batch.commit();
@@ -414,7 +484,7 @@ export default function App() {
     const payload = { ...newEvent, createdAt: new Date().toISOString(), dayOrder: {} };
 
     if (syncStatus === 'connected' && db) {
-      await setDoc(doc(collection(db, 'artifacts', appId, 'public', 'data', 'events')), payload);
+      await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
       showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
     } else { saveLocalEvent({ ...payload, id: crypto.randomUUID() }); }
     
@@ -422,13 +492,13 @@ export default function App() {
   };
 
   const handleUpdateEvent = async () => {
-    if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'events', editEventForm.id), editEventForm, { merge: true });
+    if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId), editEventForm.id), editEventForm, { merge: true });
     else setEvents(events.map(ev => ev.id === editEventForm.id ? { ...ev, ...editEventForm } : ev));
     setIsEditing(false); setIsDetailModalOpen(false); showToast("수정 완료되었습니다.", "success");
   };
 
   const handleDeleteEvent = async (id) => {
-    if (syncStatus === 'connected' && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'events', id));
+    if (syncStatus === 'connected' && db) await deleteDoc(doc(getEventsCollectionRef(currentCalendarId), id));
     else setEvents(events.filter(ev => ev.id !== id));
     setIsDetailModalOpen(false); showToast("삭제 완료되었습니다.", "success");
   };
@@ -525,7 +595,7 @@ export default function App() {
     if (!card.category) { showToast("카테고리를 선택해 주세요!", "error"); setActiveProposalCatDropdownId(id); return; }
     const payload = { ...card, createdAt: new Date().toISOString(), dayOrder: {} };
     delete payload.id;
-    if (syncStatus === 'connected' && db) await setDoc(doc(collection(db, 'artifacts', appId, 'public', 'data', 'events')), payload);
+    if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
     setParsedProposals(prev => prev.filter(p => p.id !== id)); showToast("캘린더에 연동 등록했습니다.", "success");
   };
 
@@ -534,35 +604,29 @@ export default function App() {
     if (!newCategoryName.trim()) return showToast("카테고리명을 입력해 주세요.", "error");
     const trimmedName = newCategoryName.trim();
 
-    // 🔑 수정 모드: 기존 카테고리를 클릭해서 들어온 경우
     if (editingCategoryName) {
       if (trimmedName !== editingCategoryName && categories[trimmedName]) {
         return showToast("이미 존재하는 카테고리입니다.", "error");
       }
 
-      // 순서(key 순서)를 유지하면서 이름/색상만 교체
-      const updatedCategories = {};
-      Object.entries(categories).forEach(([name, styling]) => {
-        if (name === editingCategoryName) {
-          updatedCategories[trimmedName] = NOTION_PALETTES[selectedPaletteKey];
-        } else {
-          updatedCategories[name] = styling;
-        }
-      });
+      const { [editingCategoryName]: oldStyling, ...restCategories } = categories;
+      const updatedCategories = { ...restCategories, [trimmedName]: NOTION_PALETTES[selectedPaletteKey] };
+      const updatedOrder = categoryOrder.map(name => name === editingCategoryName ? trimmedName : name);
 
       setCategories(updatedCategories);
+      setCategoryOrder(updatedOrder);
       setNewCategoryName('');
       setEditingCategoryName(null);
-      if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), updatedCategories);
+      if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...updatedCategories, __order: updatedOrder });
       showToast("카테고리가 수정되었습니다.", "success");
       return;
     }
 
-    // 신규 추가 모드
     if (categories[trimmedName]) return showToast("이미 존재하는 카테고리입니다.", "error");
     const updatedCategories = { ...categories, [trimmedName]: NOTION_PALETTES[selectedPaletteKey] };
-    setCategories(updatedCategories); setNewCategoryName('');
-    if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), updatedCategories);
+    const updatedOrder = [...categoryOrder, trimmedName];
+    setCategories(updatedCategories); setCategoryOrder(updatedOrder); setNewCategoryName('');
+    if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...updatedCategories, __order: updatedOrder });
     showToast("카테고리가 추가되었습니다.", "success");
   };
 
@@ -585,12 +649,14 @@ export default function App() {
     if (Object.keys(categories).length <= 1) return showToast("최소 1개 이상의 카테고리가 유지되어야 합니다.", "error");
     const { [catName]: deleted, ...rest } = categories;
     deleted // 미사용 경고 처리 방지
+    const updatedOrder = categoryOrder.filter(name => name !== catName);
     setCategories(rest);
+    setCategoryOrder(updatedOrder);
     if (editingCategoryName === catName) {
       setEditingCategoryName(null);
       setNewCategoryName('');
     }
-    if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), rest);
+    if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...rest, __order: updatedOrder });
     showToast("카테고리가 삭제되었습니다.", "info");
   };
 
@@ -607,7 +673,7 @@ export default function App() {
     setDragOverCategoryName(null);
 
     if (lastCategoryOrderRef.current && syncStatus === 'connected' && db) {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), lastCategoryOrderRef.current);
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...categories, __order: lastCategoryOrderRef.current });
     }
     lastCategoryOrderRef.current = null;
   };
@@ -616,25 +682,22 @@ export default function App() {
     e.preventDefault();
   };
 
-  // 🔑 드래그 중 다른 카드 위로 진입하면 실시간으로 카드 위치를 교체 (화면만 즉시 갱신)
   const handleCategoryDragEnter = (e, targetCatName) => {
     e.preventDefault();
     if (!draggedCategoryName || draggedCategoryName === targetCatName) return;
 
     setDragOverCategoryName(targetCatName);
 
-    const entries = Object.entries(categories);
-    const draggedIdx = entries.findIndex(([name]) => name === draggedCategoryName);
-    const targetIdx = entries.findIndex(([name]) => name === targetCatName);
+    const draggedIdx = categoryOrder.indexOf(draggedCategoryName);
+    const targetIdx = categoryOrder.indexOf(targetCatName);
     if (draggedIdx === -1 || targetIdx === -1 || draggedIdx === targetIdx) return;
 
-    const reordered = [...entries];
-    const [removed] = reordered.splice(draggedIdx, 1);
-    reordered.splice(targetIdx, 0, removed);
+    const reorderedOrder = [...categoryOrder];
+    const [removed] = reorderedOrder.splice(draggedIdx, 1);
+    reorderedOrder.splice(targetIdx, 0, removed);
 
-    const reorderedCategories = Object.fromEntries(reordered);
-    lastCategoryOrderRef.current = reorderedCategories;
-    setCategories(reorderedCategories);
+    lastCategoryOrderRef.current = reorderedOrder;
+    setCategoryOrder(reorderedOrder);
   };
 
   const handleCategoryDrop = (e) => {
@@ -685,6 +748,11 @@ export default function App() {
               formatDateString={formatDateString} activeSidePanel={activeSidePanel}
               onEventOrderChange={handleEventOrderPreview}
               onEventOrderCommit={handleEventOrderCommit}
+              calendarList={calendarList} currentCalendarId={currentCalendarId}
+              isCalendarSwitcherOpen={isCalendarSwitcherOpen} setIsCalendarSwitcherOpen={setIsCalendarSwitcherOpen}
+              newCalendarName={newCalendarName} setNewCalendarName={setNewCalendarName}
+              handleCreateCalendar={handleCreateCalendar} handleDeleteCalendarEntry={handleDeleteCalendarEntry}
+              handleSwitchCalendar={handleSwitchCalendar}
             />
 
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
@@ -692,7 +760,7 @@ export default function App() {
               activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} selectedDate={selectedDate}
               activeDayMeal={activeDayMeal} messengerInput={messengerInput} setMessengerInput={setMessengerInput}
               handleAnalyzeMessengerText={handleAnalyzeMessengerText} isAnalyzing={isAnalyzing} parsedProposals={parsedProposals}
-              setParsedProposals={setParsedProposals} categories={categories} NOTION_PALETTES={NOTION_PALETTES}
+              setParsedProposals={setParsedProposals} categories={categories} categoryOrder={categoryOrder} NOTION_PALETTES={NOTION_PALETTES}
               activeProposalCatDropdownId={activeProposalCatDropdownId} setActiveProposalCatDropdownId={setActiveProposalCatDropdownId}
               handleUpdateProposalCategory={handleUpdateProposalCategory} handleAddSingleProposalCard={handleAddSingleProposalCard}
               handleEditProposal={handleEditProposal}
@@ -746,12 +814,16 @@ export default function App() {
                   </button>
                   {isAddCatDropdownOpen && (
                     <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {Object.entries(categories).map(([catName, styling]) => (
-                        <button key={catName} type="button" onClick={() => { setNewEvent(prev => ({ ...prev, category: catName })); setIsAddCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
-                          <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
-                          <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
-                        </button>
-                      ))}
+                      {categoryOrder.map((catName) => {
+                        const styling = categories[catName];
+                        if (!styling) return null;
+                        return (
+                          <button key={catName} type="button" onClick={() => { setNewEvent(prev => ({ ...prev, category: catName })); setIsAddCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
+                            <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                            <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -816,12 +888,16 @@ export default function App() {
                     </button>
                     {isEditCatDropdownOpen && (
                       <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                        {Object.entries(categories).map(([catName, styling]) => (
-                          <button key={catName} type="button" onClick={() => { setEditEventForm(prev => ({ ...prev, category: catName })); setIsEditCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
-                            <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
-                            <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
-                          </button>
-                        ))}
+                        {categoryOrder.map((catName) => {
+                          const styling = categories[catName];
+                          if (!styling) return null;
+                          return (
+                            <button key={catName} type="button" onClick={() => { setEditEventForm(prev => ({ ...prev, category: catName })); setIsEditCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
+                              <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                              <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -940,7 +1016,9 @@ export default function App() {
               <div className="pt-3 border-t border-[#E9E9E6] space-y-1.5">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">저장된 카테고리 ({Object.keys(categories).length}개) · 드래그로 순서 변경</p>
                 <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-                  {Object.entries(categories).map(([catName, styling]) => {
+                  {categoryOrder.map((catName) => {
+                    const styling = categories[catName];
+                    if (!styling) return null;
                     const isHovered = dragOverCategoryName === catName;
                     return (
                       <div 

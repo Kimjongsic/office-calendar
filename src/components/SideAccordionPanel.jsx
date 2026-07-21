@@ -21,7 +21,7 @@ const createEmptyGrid = () => ({
 export default function SideAccordionPanel({
   activeSidePanel, setActiveSidePanel, selectedDate, activeDayMeal,
   messengerInput, setMessengerInput, handleAnalyzeMessengerText, isAnalyzing, parsedProposals,
-  setParsedProposals, categories, NOTION_PALETTES, activeProposalCatDropdownId,
+  setParsedProposals, categories, categoryOrder, NOTION_PALETTES, activeProposalCatDropdownId,
   setActiveProposalCatDropdownId, handleUpdateProposalCategory, handleAddSingleProposalCard, handleEditProposal,
   bookmarks, handleOpenBookmarkUrl, handleDeleteBookmark, newBookmarkTitle,
   setNewBookmarkTitle, newBookmarkUrl, setNewBookmarkUrl, handleAddBookmarkSubmit,
@@ -524,12 +524,16 @@ export default function SideAccordionPanel({
                             
                             {activeProposalCatDropdownId === proposal.id && (
                               <div className="absolute left-0 mt-1 w-36 bg-white border border-[#E9E9E6] rounded-md shadow-xl z-50 max-h-40 overflow-y-auto">
-                                {Object.entries(categories).map(([catName, styling]) => (
-                                  <button key={catName} type="button" onClick={() => handleUpdateProposalCategory(proposal.id, catName)} className="w-full px-2 py-1.5 text-left hover:bg-[#F7F7F5] flex items-center gap-1.5 border-b border-gray-50 last:border-0">
-                                    <span className={`w-2 h-2 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
-                                    <span className="text-[9px] font-semibold text-gray-700">{catName}</span>
-                                  </button>
-                                ))}
+                                {categoryOrder.map((catName) => {
+                                  const styling = categories[catName];
+                                  if (!styling) return null;
+                                  return (
+                                    <button key={catName} type="button" onClick={() => handleUpdateProposalCategory(proposal.id, catName)} className="w-full px-2 py-1.5 text-left hover:bg-[#F7F7F5] flex items-center gap-1.5 border-b border-gray-50 last:border-0">
+                                      <span className={`w-2 h-2 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                                      <span className="text-[9px] font-semibold text-gray-700">{catName}</span>
+                                    </button>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
