@@ -36,6 +36,7 @@ function createWindow() {
     // 🔑 네트워크 캐시(HTML/JS/CSS)만 비우고 localStorage(북마크, API 키 등)는 보존
     win.webContents.session.clearCache().then(() => {
       win.loadURL('https://grade-calendar-89b7c.web.app');
+      win.webContents.openDevTools(); // 🔑 [임시 디버깅용] 확인 후 반드시 제거
     });
   } else {
     win.loadURL('http://localhost:5173');
@@ -77,9 +78,18 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
+  console.log('app.isPackaged 값:', app.isPackaged); // 🔑 [임시 디버깅용]
+
   // 🔑 [신규] 패키징된 앱에서만 자동 업데이트 체크 (개발 모드에서는 동작 안 함)
   if (app.isPackaged) {
     autoUpdater.checkForUpdatesAndNotify();
+
+    // 🔑 [임시 디버깅용] 확인 후 제거
+    autoUpdater.on('checking-for-update', () => console.log('업데이트 확인 중...'));
+    autoUpdater.on('update-available', (info) => console.log('새 버전 발견:', info.version));
+    autoUpdater.on('update-not-available', (info) => console.log('이미 최신 버전:', info.version));
+    autoUpdater.on('download-progress', (p) => console.log('다운로드 중:', Math.round(p.percent) + '%'));
+    autoUpdater.on('error', (err) => console.log('업데이트 오류:', err.message));
   }
 });
 

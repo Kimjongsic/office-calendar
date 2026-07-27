@@ -1,7 +1,7 @@
 {
   "name": "office-calendar",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.2",
   "main": "main.js",
   "homepage": ".",
   "scripts": {
@@ -50,7 +50,8 @@
     "publish": {
       "provider": "github",
       "owner": "Kimjongsic",
-      "repo": "office-calendar"
+      "repo": "office-calendar",
+      "releaseType": "release"
     },
     "win": {
       "target": [
