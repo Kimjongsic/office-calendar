@@ -1,11 +1,7 @@
 {
   "name": "office-calendar",
   "private": true,
-<<<<<<< HEAD
-  "version": "1.1.0",
-=======
   "version": "1.2.0",
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
   "main": "main.js",
   "homepage": ".",
   "scripts": {
@@ -15,18 +11,12 @@
     "preview": "vite preview",
     "electron:start": "electron .",
     "electron:package": "vite build && electron-builder",
-<<<<<<< HEAD
-=======
     "electron:release": "vite build && dotenv -e .env -- electron-builder --publish always",
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
     "deploy": "npx vite build && firebase deploy --only hosting"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.2",
-<<<<<<< HEAD
-=======
     "electron-updater": "^6.8.9",
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
     "firebase": "^12.16.0",
     "lucide-react": "^1.24.0",
     "react": "^19.2.7",
@@ -39,11 +29,8 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.5.3",
-<<<<<<< HEAD
-=======
     "cross-env": "^10.1.0",
     "dotenv-cli": "^11.0.0",
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "eslint": "^10.6.0",
@@ -60,14 +47,11 @@
     "directories": {
       "output": "build_output"
     },
-<<<<<<< HEAD
-=======
     "publish": {
       "provider": "github",
       "owner": "Kimjongsic",
       "repo": "office-calendar"
     },
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
     "win": {
       "target": [
         "nsis"
@@ -87,8 +71,4 @@
       "package.json"
     ]
   }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
