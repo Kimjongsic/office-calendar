@@ -183,10 +183,7 @@ export default function App() {
 
   const [currentTimeStr, setCurrentTimeStr] = useState('');
   const [currentDateStr, setCurrentDateStr] = useState('');
-<<<<<<< HEAD
-=======
   const [appVersion, setAppVersion] = useState('');
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -222,8 +219,6 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem('school_calendar_bookmarks', JSON.stringify(bookmarks)); }, [bookmarks]);
 
-<<<<<<< HEAD
-=======
   // 🔑 [신규] 앱 버전 정보를 받아와 헤더에 표시
   useEffect(() => {
     if (window.electronAPI?.getAppVersion) {
@@ -231,7 +226,6 @@ export default function App() {
     }
   }, []);
 
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
   useEffect(() => {
     const activeKeys = Object.keys(categories);
     if (activeKeys.length > 0) {
@@ -743,10 +737,7 @@ export default function App() {
         isOpacityDropdownOpen={isOpacityDropdownOpen} setIsOpacityDropdownOpen={setIsOpacityDropdownOpen}
         handleToggleAlwaysOnTop={handleToggleAlwaysOnTop} handleToggleMoveLock={handleToggleMoveLock}
         handleOpacityChange={handleOpacityChange} handleMinimize={handleMinimize} handleMaximize={handleMaximize} handleClose={handleClose}
-<<<<<<< HEAD
-=======
         appVersion={appVersion}
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
       />
 
       <div className="flex-1 flex flex-row min-w-0 w-full relative overflow-hidden gap-1.5">
