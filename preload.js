@@ -9,5 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setMovable: (flag) => ipcRenderer.send('set-movable', flag),
   setOpacity: (value) => ipcRenderer.send('set-opacity', value),
   openExternal: (url) => ipcRenderer.send('open-external', url),
+<<<<<<< HEAD
+=======
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+>>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
   
 });

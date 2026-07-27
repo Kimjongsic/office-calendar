@@ -1,3 +1,10 @@
+<<<<<<< HEAD
+=======
+*.exe
+public/updates/
+public/updates/*
+
+>>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 # Logs
 logs
 *.log
@@ -29,4 +36,11 @@ build_output
 *.ntvs*
 *.njsproj
 *.sln
+<<<<<<< HEAD
 *.sw?
+=======
+
+# 빌드 결과물 및 실행 파일 제외
+public/updates/
+*.exe
+>>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1

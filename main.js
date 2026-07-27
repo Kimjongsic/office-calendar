@@ -1,5 +1,11 @@
+<<<<<<< HEAD
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
+=======
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const path = require('path');
+const { autoUpdater } = require('electron-updater');
+>>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 
 app.disableHardwareAcceleration(); // 🔑 GPU 가속 비활성화
 
@@ -70,12 +76,37 @@ ipcMain.on('set-opacity', (event, value) => {
 });
 
 ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
+<<<<<<< HEAD
+=======
+ipcMain.handle('get-app-version', () => app.getVersion());
+>>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 
 app.whenReady().then(() => {
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+<<<<<<< HEAD
+=======
+
+  // 🔑 [신규] 패키징된 앱에서만 자동 업데이트 체크 (개발 모드에서는 동작 안 함)
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdatesAndNotify();
+  }
+});
+
+// 🔑 [신규] 새 버전이 백그라운드에 다 받아지면, 사용자에게 재시작해서 적용할지 물어봄
+autoUpdater.on('update-downloaded', () => {
+  dialog.showMessageBox({
+    type: 'info',
+    title: '업데이트 준비 완료',
+    message: '새 버전이 다운로드되었습니다. 지금 재시작해서 적용할까요?',
+    buttons: ['지금 재시작', '나중에'],
+    defaultId: 0,
+  }).then((result) => {
+    if (result.response === 0) autoUpdater.quitAndInstall();
+  });
+>>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 });
 
 app.on('window-all-closed', () => {

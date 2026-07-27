@@ -5,7 +5,11 @@ import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X } fr
 export default function DashboardHeader({
   syncStatus, isAlwaysOnTop, isMoveLocked, opacityValue, isOpacityDropdownOpen,
   setIsOpacityDropdownOpen, handleToggleAlwaysOnTop, handleToggleMoveLock,
+<<<<<<< HEAD
   handleOpacityChange, handleMinimize, handleMaximize, handleClose
+=======
+  handleOpacityChange, handleMinimize, handleMaximize, handleClose, appVersion
+>>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 }) {
   // 🔑 electronAPI 직접 호출 제거: IPC 호출은 App.jsx의 handleX 함수들이 이미 담당하고 있어서
   // 여기서 또 호출하면 클릭 한 번에 IPC가 두 번 전송되어(최대화→즉시 복원) 버튼이
@@ -30,7 +34,14 @@ export default function DashboardHeader({
               교무실 공유 캘린더
               {isMoveLocked && <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">위치 잠김</span>}
             </h1>
+<<<<<<< HEAD
             <p className="text-[11px] text-gray-500 font-medium">2026년 솔내고 2학년실</p>
+=======
+            <p className="text-[11px] text-gray-500 font-medium">
+              2026년 솔내고 2학년실
+              {appVersion && <span className="ml-1 text-gray-300">· v{appVersion}</span>}
+            </p>
+>>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
           </div>
         </div>
 
