@@ -1,0 +1,1131 @@
+// src/App.jsx
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { db, initAnonymousAuth } from './firebase';
+// 드래그 앤 드롭 순서 변경의 원자적 일괄 처리를 위해 writeBatch 라이브러리 추가 바인딩
+import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import {
+  Calendar as CalendarIcon,
+  Plus,
+  Trash2,
+  Edit3,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Check,
+  User,
+  X,
+  MessageSquare,
+  Pin,
+  Settings,
+  Palette,
+  Sparkles,
+  RefreshCw,
+  Clock,
+  MapPin,
+  FileText,
+  Link,
+  Users,
+  ChevronDown,
+  Key,
+  Globe,
+  Menu,
+  Minus,
+  Square,
+  Lock,
+  Unlock,
+  Eye,
+  Utensils,
+  Bookmark,
+  Wallet
+} from 'lucide-react';
+
+import DashboardHeader from './components/DashboardHeader';
+import TopWidgets from './components/TopWidgets';
+import CalendarBoard from './components/CalendarBoard';
+import SideAccordionPanel from './components/SideAccordionPanel';
+
+const NOTION_PALETTES = {
+  red: { bg: 'bg-[#FFE2DD]', text: 'text-[#5D0F00]', border: 'border-[#FFE2DD]', color: '#FFE2DD', label: '연한 빨강' },
+  blue: { bg: 'bg-[#DDEBF1]', text: 'text-[#0C3446]', border: 'border-[#DDEBF1]', color: '#DDEBF1', label: '연한 파랑' },
+  yellow: { bg: 'bg-[#FDECC8]', text: 'text-[#5C3B00]', border: 'border-[#FDECC8]', color: '#FDECC8', label: '연한 노랑' },
+  green: { bg: 'bg-[#DDEDEA]', text: 'text-[#1C3D27]', border: 'border-[#DDEDEA]', color: '#DDEDEA', label: '연한 녹색' },
+  purple: { bg: 'bg-[#EAE4F2]', text: 'text-[#461146]', border: 'border-[#EAE4F2]', color: '#EAE4F2', label: '연한 보라' },
+  orange: { bg: 'bg-[#FAE3D9]', text: 'text-[#632000]', border: 'border-[#FAE3D9]', color: '#FAE3D9', label: '연한 주황' },
+  gray: { bg: 'bg-[#E3E2E0]', text: 'text-[#37352F]', border: 'border-[#E3E2E0]', color: '#E3E2E0', label: '연한 회색' }
+};
+
+const extractHexColor = (className) => {
+  const match = className.match(/#([A-Fa-f0-9]{6})/);
+  return match ? match[0] : '#37352F';
+};
+
+export default function App() {
+  const appId = 'notion-school-calendar';
+
+  // 🔑 [신규] 캘린더 ID에 따라 이벤트가 저장될 Firestore 컬렉션을 반환
+  // 'default'(기존 캘린더)는 기존 경로를 그대로 사용해 데이터 이전이 필요 없도록 함
+  const getEventsCollectionRef = (calendarId) => {
+    if (!calendarId || calendarId === 'default') {
+      return collection(db, 'artifacts', appId, 'public', 'data', 'events');
+    }
+    return collection(db, 'artifacts', appId, 'public', 'data', 'calendars', calendarId, 'events');
+  };
+
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const formatDateString = (y, m, d) => {
+    const mm = String(m + 1).padStart(2, '0');
+    const dd = String(d).padStart(2, '0');
+    return `${y}-${mm}-${dd}`;
+  };
+
+  const selectedDateStr = useMemo(() => 
+    formatDateString(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()), 
+  [selectedDate]);
+
+  const [events, setEvents] = useState([]);
+  const [syncStatus, setSyncStatus] = useState('initializing');
+
+  // 🔑 [신규] 여러 개의 독립된 공유 캘린더 관리
+  const [calendarList, setCalendarList] = useState([{ id: 'default', name: '2학년실 캘린더' }]);
+  const [currentCalendarId, setCurrentCalendarId] = useState('default');
+  const [isCalendarSwitcherOpen, setIsCalendarSwitcherOpen] = useState(false);
+  const [newCalendarName, setNewCalendarName] = useState('');
+
+  const [categories, setCategories] = useState({
+    '교무회의': NOTION_PALETTES.red,
+    '학사일정': NOTION_PALETTES.blue,
+    '연수/출장': NOTION_PALETTES.yellow,
+    '행사/축제': NOTION_PALETTES.green,
+    '급식/보건': NOTION_PALETTES.purple,
+    '공동업무': NOTION_PALETTES.orange,
+    '기타': NOTION_PALETTES.gray
+  });
+
+  const [todayNotice, setTodayNotice] = useState({
+    words: [{ text: '', author: '' }],
+    ddayLabel: '',
+    ddayTarget: ''
+  });
+
+  const [activeNoticeIdx, setActiveNoticeIdx] = useState(0);
+  const [activeCategoryFilters, setActiveCategoryFilters] = useState([]);
+  const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+
+  // Modals State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isCategoryManageOpen, setIsCategoryManageOpen] = useState(false);
+  const [isNoticeEditOpen, setIsNoticeEditOpen] = useState(false);
+  const [isDdayEditOpen, setIsDdayEditOpen] = useState(false);
+
+  const [isAddCatDropdownOpen, setIsAddCatDropdownOpen] = useState(false);
+  const [isEditCatDropdownOpen, setIsEditCatDropdownOpen] = useState(false);
+
+  const [selectedEvent, setSelectedEvent] = useState(null);
+
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [tempApiKey, setTempApiKey] = useState('');
+
+  const [newEvent, setNewEvent] = useState({
+    title: '', category: '교무회의', manager: localStorage.getItem('school_calendar_manager') || '',
+    startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: ''
+  });
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editEventForm, setEditEventForm] = useState({
+    id: '', title: '', category: '교무회의', manager: '', startDate: '', endDate: '',
+    startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: ''
+  });
+
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [selectedPaletteKey, setSelectedPaletteKey] = useState('red');
+  const [editingCategoryName, setEditingCategoryName] = useState(null); // 🔑 현재 수정 중인 카테고리의 원래 이름
+  const [draggedCategoryName, setDraggedCategoryName] = useState(null); // 🔑 드래그 중인 카테고리명
+  const [dragOverCategoryName, setDragOverCategoryName] = useState(null); // 🔑 현재 호버된 카테고리명 (애니메이션용)
+  const [categoryOrder, setCategoryOrder] = useState([]); // 🔑 카테고리 표시 순서(Firestore 맵은 순서 보장 안 되므로 배열로 별도 관리)
+  const lastCategoryOrderRef = useRef(null); // 🔑 드래그 종료 시 1회만 Firestore에 커밋
+  const [noticeFormList, setNoticeFormList] = useState([{ text: '', author: '' }]);
+  const [ddayForm, setDdayForm] = useState({ label: '', date: '' });
+
+  const [messengerInput, setMessengerInput] = useState('');
+  const [parsedProposals, setParsedProposals] = useState([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const [activeProposalCatDropdownId, setActiveProposalCatDropdownId] = useState(null);
+  const [draggedEventId, setDraggedEventId] = useState(null);
+  const [editingProposalId, setEditingProposalId] = useState(null); // 🔑 분석 카드 수정 모드 추적
+
+  const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
+  const [isMoveLocked, setIsMovelocked] = useState(false);
+  const [opacityValue, setOpacityValue] = useState(1.0);
+  const [isOpacityDropdownOpen, setIsOpacityDropdownOpen] = useState(false);
+
+  const neisConfig = { 
+    key: import.meta.env.VITE_NEIS_API_KEY, 
+    officeCode: import.meta.env.VITE_NEIS_OFFICE_CODE, 
+    schoolCode: import.meta.env.VITE_NEIS_SCHOOL_CODE 
+  };
+  const [meals, setMeals] = useState({});
+  const [activeSidePanel, setActiveSidePanel] = useState(null);
+
+  // 🌟 [추가 상태] 실시간으로 공유될 전역 교사/학급 시간표 통합 매트릭스 원격 상태 선언
+  const [customTimetables, setCustomTimetables] = useState({ classes: {}, teachers: {} });
+
+  const [bookmarks, setBookmarks] = useState(() => {
+    const saved = localStorage.getItem('school_calendar_bookmarks');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [newBookmarkTitle, setNewBookmarkTitle] = useState('');
+  const [newBookmarkUrl, setNewBookmarkUrl] = useState('');
+
+  const [currentTimeStr, setCurrentTimeStr] = useState('');
+  const [currentDateStr, setCurrentDateStr] = useState('');
+  const [appVersion, setAppVersion] = useState('');
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  const filteredEvents = useMemo(() => {
+    return events.filter(event => {
+      if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(event.category)) return false;
+      return true;
+    });
+  }, [events, activeCategoryFilters]);
+
+  const showToast = (message, type = 'info') => {
+    toast // 미사용 방지 더미 조건부
+    setToast({ show: true, message, type });
+    setTimeout(() => { setToast({ show: false, message: '', type: 'info' }); }, 3000);
+  };
+
+  // 실시간 1초 디지털 시계 작동 이펙트
+  useEffect(() => {
+    const days = ['일', '월', '화', '수', '목', '금', '토'];
+    const updateClock = () => {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      setCurrentTimeStr(`${hh}:${mm}:${ss}`);
+      setCurrentDateStr(`${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 (${days[now.getDay()]})`);
+    };
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => { localStorage.setItem('school_calendar_bookmarks', JSON.stringify(bookmarks)); }, [bookmarks]);
+
+  // 🔑 [신규] 앱 버전 정보를 받아와 헤더에 표시
+  useEffect(() => {
+    if (window.electronAPI?.getAppVersion) {
+      window.electronAPI.getAppVersion().then(setAppVersion).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const activeKeys = Object.keys(categories);
+    if (activeKeys.length > 0) {
+      if (!activeKeys.includes(newEvent.category)) setNewEvent(prev => ({ ...prev, category: activeKeys[0] }));
+      if (isEditing && !activeKeys.includes(editEventForm.category)) setEditEventForm(prev => ({ ...prev, category: activeKeys[0] }));
+    }
+  }, [categories, isEditing, editEventForm.category, newEvent.category]);
+
+  // 파이어베이스 실시간 스트리밍 및 동기화 구축
+  useEffect(() => {
+    const initFirebaseConnection = async () => {
+      try {
+        setSyncStatus('connecting'); await initAnonymousAuth(); setSyncStatus('connected');
+      } catch (err) {
+        setSyncStatus('local');
+        const savedEvents = localStorage.getItem('local_school_events');
+        if (savedEvents) setEvents(JSON.parse(savedEvents));
+      }
+    };
+    initFirebaseConnection();
+  }, []);
+
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    return onSnapshot(getEventsCollectionRef(currentCalendarId), (snapshot) => {
+      const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
+      setEvents(items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
+    });
+  }, [syncStatus, currentCalendarId]);
+
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), (snapshot) => {
+      const savedList = snapshot.exists() && Array.isArray(snapshot.data().items) ? snapshot.data().items : [];
+      const hasDefault = savedList.some(c => c.id === 'default');
+      const mergedList = hasDefault ? savedList : [{ id: 'default', name: '2학년실 캘린더' }, ...savedList];
+      setCalendarList(mergedList);
+      if (!hasDefault) {
+        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), { items: mergedList });
+      }
+    });
+  }, [syncStatus]);
+
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), (snapshot) => {
+      if (!snapshot.exists()) return;
+      const { __order, ...categoryMap } = snapshot.data();
+      setCategories(categoryMap);
+
+      // 저장된 순서 배열 중 실제 존재하는 카테고리만 남기고, 순서 배열에 없는 새 카테고리는 뒤에 추가
+      const savedOrder = Array.isArray(__order) ? __order : [];
+      const validOrder = savedOrder.filter(name => categoryMap[name]);
+      const missingNames = Object.keys(categoryMap).filter(name => !validOrder.includes(name));
+      setCategoryOrder([...validOrder, ...missingNames]);
+    });
+  }, [syncStatus]);
+
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'notices', 'board'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setTodayNotice({
+          words: data.words || [{ text: '', author: '' }],
+          ddayLabel: data.ddayLabel || '',
+          ddayTarget: data.ddayTarget || ''
+        });
+      }
+    });
+  }, [syncStatus]);
+
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'gemini'), (snapshot) => {
+      if (snapshot.exists()) { setGeminiApiKey(snapshot.data().apiKey || ''); setTempApiKey(snapshot.data().apiKey || ''); }
+    });
+  }, [syncStatus]);
+
+  // 🌟 [기능 추가] 전교 교사 실시간 공유 시간표 도큐먼트 구독 처리 이벤트 수립
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'school_global_timetables'), (snapshot) => {
+      if (snapshot.exists()) {
+        setCustomTimetables(snapshot.data());
+      } else {
+        setCustomTimetables({ classes: {}, teachers: {} });
+      }
+    });
+  }, [syncStatus]);
+
+  // 🔑 [수정] 문서 전체를 덮어쓰지 않고, 바뀐 반/교사 한 명의 시간표만 부분 병합(merge)
+  // merge:true는 중첩 객체도 필드 단위로 깊게 병합하므로, 다른 반/교사의 데이터는 전혀 건드리지 않음
+  // → 여러 선생님이 동시에 서로 다른 반/교사 시간표를 수정해도 서로 덮어쓰지 않음
+  const handleUpdateGlobalTimetables = async (bucketKey, targetKeyName, gridData) => {
+    setCustomTimetables(prev => ({
+      ...prev,
+      [bucketKey]: { ...(prev[bucketKey] || {}), [targetKeyName]: gridData }
+    }));
+
+    if (syncStatus === 'connected' && db) {
+      try {
+        await setDoc(
+          doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'school_global_timetables'),
+          { [bucketKey]: { [targetKeyName]: gridData } },
+          { merge: true }
+        );
+      } catch (err) {
+        console.error("원격 시간표 동기화 실패: ", err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!todayNotice.words || todayNotice.words.length <= 1) { setActiveNoticeIdx(0); return; }
+    const interval = setInterval(() => { setActiveNoticeIdx(prev => (prev + 1) % todayNotice.words.length); }, 4000);
+    return () => clearInterval(interval);
+  }, [todayNotice.words]);
+
+  useEffect(() => { fetchNeisMealData(year, month); }, [year, month]);
+
+  // 나이스 급식 API 연동부 
+  const fetchNeisMealData = async (targetYear, targetMonth) => {
+    const formattedMonth = String(targetMonth + 1).padStart(2, '0');
+    const yyyymm = `${targetYear}${formattedMonth}`;
+    const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${neisConfig.key}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${neisConfig.officeCode}&SD_SCHUL_CODE=${neisConfig.schoolCode}&MLSV_YMD=${yyyymm}`;
+
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.mealServiceDietInfo && data.mealServiceDietInfo[1].row) {
+        const rows = data.mealServiceDietInfo[1].row;
+        const mealMap = {};
+        rows.forEach(row => {
+          const dateKey = `${row.MLSV_YMD.substring(0,4)}-${row.MLSV_YMD.substring(4,6)}-${row.MLSV_YMD.substring(6,8)}`;
+          const cleanDiet = row.DDISH_NM.replace(/\([^()]*\)/g, '').replace(/<br\s*\/?>/gi, '\n').trim();
+          if (!mealMap[dateKey]) mealMap[dateKey] = { lunch: null, dinner: null };
+          if (row.MMEAL_SC_CODE === "2") mealMap[dateKey].lunch = { diet: cleanDiet, calories: row.CAL_INFO };
+          if (row.MMEAL_SC_CODE === "3") mealMap[dateKey].dinner = { diet: cleanDiet, calories: row.CAL_INFO };
+        });
+        setMeals(mealMap);
+      } else { setMeals({}); }
+    } catch (err) { console.error("나이스 급식 수신 실패:", err); setMeals({}); }
+  };
+
+  // 윈도우 프레임 및 상태 변경 핸들러
+  const handleToggleAlwaysOnTop = () => { setIsAlwaysOnTop(!isAlwaysOnTop); window.electronAPI?.setAlwaysOnTop(!isAlwaysOnTop); };
+  const handleToggleMoveLock = () => { setIsMovelocked(!isMoveLocked); window.electronAPI?.setMovable(isMoveLocked); };
+  const handleOpacityChange = (value) => { setOpacityValue(value); window.electronAPI?.setOpacity(value); };
+  const handleMinimize = () => window.electronAPI?.minimize();
+  const handleMaximize = () => window.electronAPI?.maximize();
+  const handleClose = () => window.electronAPI?.close();
+  const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+  const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+  const handleToday = () => { setCurrentDate(new Date()); setSelectedDate(new Date()); };
+  const toggleSidePanel = (panelName) => setActiveSidePanel(activeSidePanel === panelName ? null : panelName);
+
+  // 🔑 [신규] 캘린더 생성/삭제/전환
+  const handleCreateCalendar = async () => {
+    const trimmed = newCalendarName.trim();
+    if (!trimmed) return showToast("캘린더 이름을 입력해 주세요.", "error");
+    const newCalendar = { id: crypto.randomUUID(), name: trimmed };
+    const updatedList = [...calendarList, newCalendar];
+    setCalendarList(updatedList);
+    setNewCalendarName('');
+    setCurrentCalendarId(newCalendar.id);
+    setIsCalendarSwitcherOpen(false);
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), { items: updatedList });
+    }
+    showToast(`'${trimmed}' 캘린더가 생성되었습니다.`, "success");
+  };
+
+  const handleDeleteCalendarEntry = async (calendarId) => {
+    if (calendarList.length <= 1) return showToast("최소 1개 이상의 캘린더가 유지되어야 합니다.", "error");
+    const updatedList = calendarList.filter(c => c.id !== calendarId);
+    setCalendarList(updatedList);
+    if (currentCalendarId === calendarId) setCurrentCalendarId(updatedList[0].id);
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), { items: updatedList });
+    }
+    showToast("캘린더가 목록에서 제거되었습니다. (기존 일정 데이터는 보존됩니다)", "info");
+  };
+
+  const handleSwitchCalendar = (calendarId) => {
+    setCurrentCalendarId(calendarId);
+    setIsCalendarSwitcherOpen(false);
+  };
+
+  // 🔑 [최적화] 드래그 중 화면 미리보기 전용: 로컬 state만 즉시 갱신, Firestore 쓰기 없음
+  const handleEventOrderPreview = (updatedOrders) => {
+    setEvents(prevEvents => prevEvents.map(ev => {
+      const match = updatedOrders.find(o => o.id === ev.id);
+      return match ? { ...ev, dayOrder: match.updatedOrder } : ev;
+    }));
+  };
+
+  // 🔑 [최적화] 드래그가 끝난 시점에 CalendarBoard가 딱 1번 호출: 여기서만 Firestore/로컬스토리지에 저장
+  const handleEventOrderCommit = async (updatedOrders) => {
+    if (syncStatus === 'connected' && db) {
+      try {
+        const batch = writeBatch(db);
+        const eventsRef = getEventsCollectionRef(currentCalendarId);
+        updatedOrders.forEach(item => {
+          const eventDocRef = doc(eventsRef, item.id);
+          batch.update(eventDocRef, { dayOrder: item.updatedOrder });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.error("Firestore 순서 저장 실패:", err);
+        showToast("순서 동기화 중 오류가 발생했습니다.", "error");
+      }
+    } else {
+      setEvents(prevEvents => {
+        const latestEvents = prevEvents.map(ev => {
+          const match = updatedOrders.find(o => o.id === ev.id);
+          return match ? { ...ev, dayOrder: match.updatedOrder } : ev;
+        });
+        localStorage.setItem('local_school_events', JSON.stringify(latestEvents));
+        return latestEvents;
+      });
+    }
+  };
+
+  // 🔑 모달을 닫을 때 폼과 수정모드 상태를 함께 초기화
+  const handleCloseAddModal = () => {
+    setIsAddModalOpen(false);
+    setEditingProposalId(null);
+    setNewEvent({ title: '', category: Object.keys(categories)[0] || '기타', manager: localStorage.getItem('school_calendar_manager') || '', startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '' });
+  };
+
+  // 🔑 AI 분석 카드를 수정 모달에 채워서 열기
+  const handleEditProposal = (proposal) => {
+    setNewEvent({
+      title: proposal.title || '',
+      category: proposal.category || (Object.keys(categories)[0] || '기타'),
+      manager: proposal.manager || '',
+      startDate: proposal.startDate || '',
+      endDate: proposal.endDate || '',
+      startTime: proposal.startTime || '',
+      endTime: proposal.endTime || '',
+      location: proposal.location || '',
+      applyMethod: proposal.applyMethod || '',
+      applyCount: proposal.applyCount || '',
+      memo: proposal.memo || ''
+    });
+    setEditingProposalId(proposal.id);
+    setIsAddModalOpen(true);
+  };
+
+  // 일정 생성 데이터 전송 로직
+  const handleAddEventSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!newEvent.title.trim() || !newEvent.startDate) return showToast("제목과 시작일은 필수 항목입니다.", "error");
+
+    // 🔑 분석 카드 수정 모드: Firestore에 바로 저장하지 않고 parsedProposals만 갱신
+    if (editingProposalId) {
+      setParsedProposals(prev => prev.map(p => p.id === editingProposalId ? { ...p, ...newEvent } : p));
+      showToast("분석 일정이 수정되었습니다.", "success");
+      handleCloseAddModal();
+      return;
+    }
+
+    if (newEvent.manager.trim()) localStorage.setItem('school_calendar_manager', newEvent.manager);
+    const payload = { ...newEvent, createdAt: new Date().toISOString(), dayOrder: {} };
+
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
+      showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
+    } else { saveLocalEvent({ ...payload, id: crypto.randomUUID() }); }
+    
+    handleCloseAddModal();
+  };
+
+  const handleUpdateEvent = async () => {
+    if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId), editEventForm.id), editEventForm, { merge: true });
+    else setEvents(events.map(ev => ev.id === editEventForm.id ? { ...ev, ...editEventForm } : ev));
+    setIsEditing(false); setIsDetailModalOpen(false); showToast("수정 완료되었습니다.", "success");
+  };
+
+  const handleDeleteEvent = async (id) => {
+    if (syncStatus === 'connected' && db) await deleteDoc(doc(getEventsCollectionRef(currentCalendarId), id));
+    else setEvents(events.filter(ev => ev.id !== id));
+    setIsDetailModalOpen(false); showToast("삭제 완료되었습니다.", "success");
+  };
+
+  // 오늘의 한마디 및 디데이 제어
+  const handleUpdateNotice = async () => {
+    const cleanWords = noticeFormList.map(w => ({ text: w.text.trim(), author: w.author.trim() })).filter(w => w.text);
+    const updated = { ...todayNotice, words: cleanWords.length > 0 ? cleanWords : [{ text: '', author: '' }] };
+    setTodayNotice(updated); setActiveNoticeIdx(0); setIsNoticeEditOpen(false);
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notices', 'board'), updated, { merge: true });
+      showToast("오늘의 한마디가 연동 저장되었습니다.", "success");
+    }
+  };
+
+  const handleUpdateDday = async () => {
+    const updated = { ...todayNotice, ddayLabel: ddayForm.label.trim(), ddayTarget: ddayForm.date };
+    setTodayNotice(updated); setIsDdayEditOpen(false);
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notices', 'board'), updated, { merge: true });
+      showToast("디데이 설정이 성공적으로 수정되었습니다.", "success");
+    }
+  };
+
+  const handleClearDday = async () => {
+    const updated = { ...todayNotice, ddayLabel: '', ddayTarget: '' };
+    setTodayNotice(updated); setIsDdayEditOpen(false);
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notices', 'board'), updated, { merge: true });
+      showToast("디데이가 초기화되었습니다.", "info");
+    }
+  };
+
+  // 북마크 제어 리스너
+  const handleAddBookmarkSubmit = (e) => {
+    if (e) e.preventDefault();
+    if (!newBookmarkTitle.trim() || !newBookmarkUrl.trim()) return;
+    let parsedUrl = newBookmarkUrl.trim();
+    if (!/^https?:\/\//i.test(parsedUrl)) parsedUrl = `https://${parsedUrl}`;
+    setBookmarks([...bookmarks, { id: crypto.randomUUID(), title: newBookmarkTitle.trim(), url: parsedUrl }]);
+    setNewBookmarkTitle(''); setNewBookmarkUrl(''); showToast("북마크가 등록되었습니다.", "success");
+  };
+  const handleDeleteBookmark = (id) => { setBookmarks(bookmarks.filter(b => b.id !== id)); };
+  const handleOpenBookmarkUrl = (e, url) => { e.preventDefault(); window.electronAPI ? window.electronAPI.openExternal(url) : window.open(url, '_blank'); };
+  
+  const handleSaveApiKeyToLocal = () => { localStorage.setItem('user_gemini_api_key', tempApiKey.trim()); setGeminiApiKey(tempApiKey.trim()); showToast("키가 등록되었습니다.", "success"); };
+  const handleShareApiKeyToFirestore = async () => { if (syncStatus === 'connected') await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'gemini'), { apiKey: tempApiKey.trim() }); showToast("전체 공유 완료", "success"); };
+
+  // Gemini AI 기반 메신저 일정 분석기
+  const handleAnalyzeMessengerText = async () => {
+    if (!messengerInput.trim()) return showToast("분석할 안내 내용을 기입해 주세요.", "error");
+    if (!geminiApiKey.trim()) return showToast("설정에서 Gemini API Key를 등록해 주세요!", "error");
+
+    setIsAnalyzing(true);
+    try {
+      const promptPieces = [
+        "너는 학교 교무실 업무를 지원하는 완벽한 AI 비서이다.",
+        "제공되는 텍스트 하나에는 서로 다른 공지가 1건만 있을 수도 있고, 여러 건이 섞여 있을 수도 있다. 올해는 2026년이다.",
+        "1단계: 먼저 텍스트가 몇 개의 서로 다른 '공지 단위'로 구성되어 있는지 파악하라. 번호(1. 2. 3.), 구분선, 빈 줄, 서로 다른 제목 블록으로 나뉘어 있다면 각각 별개의 공지로 간주한다.",
+        "2단계: 각 공지 단위 안에서, 성격이 서로 다른 날짜(또는 날짜 범위)가 몇 개나 언급되는지 파악하라. '이 날짜가 가리키는 행동이나 사건이 서로 다른가?'를 기준으로 판단한다. 예를 들어 '신청/접수/제출의 마감일'과 '실제 행사/교육/활동이 열리는 날'은 서로 다른 사건이므로 별개의 날짜로 센다. 같은 공지 안에 심사일, 발표일처럼 제3, 제4의 날짜가 더 있다면 그것도 각각 별개의 날짜로 센다.",
+        "3단계: 한 공지 안에 서로 다른 날짜가 N개 있다면, 그 공지에서 N개의 일정 항목을 만든다. 각 항목의 title은 원래 제목에 그 날짜가 가리키는 행동을 짧게 괄호로 덧붙인다(예: '(신청마감)', '(접수기간)', '(심사)', '(발표)' 등 텍스트의 표현을 그대로 살려서 짓는다). 날짜가 실제 행사/활동 자체를 가리키는 항목이라면 원래 제목을 그대로 쓰고 괄호를 붙이지 않는다.",
+        "4단계: 장소, 담당자, 신청방법, 신청인원 등 날짜와 무관하게 공통되는 정보는 그 공지에서 만들어진 모든 일정 항목에 동일하게 채운다.",
+        "한 공지 안에 날짜가 1개뿐이면 항목도 1개만 만든다. 날짜 종류를 억지로 쪼개지 말고, 실제로 서로 다른 사건을 가리킬 때만 나눈다.",
+        "모든 공지에서 만들어진 일정 항목 전체를 하나의 JSON 배열로 응답하라.",
+        "오직 아래 명세(배열 형태)만 텍스트로 응답하고, 마크다운 기호(```json)나 설명은 일절 배제하라:",
+        "[ { \"title\": \"일정명\", \"startDate\": \"YYYY-MM-DD\", \"endDate\": \"YYYY-MM-DD\", \"startTime\": \"HH:MM\", \"endTime\": \"HH:MM\", \"manager\": \"\", \"location\": \"\", \"applyMethod\": \"\", \"applyCount\": \"\", \"memo\": \"\" } ]"
+      ];
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: promptPieces.join("\n") }, { text: `[원문]\n${messengerInput}` }] }] })
+        }
+      );
+
+      if (!response.ok) throw new Error("API 호출 실패");
+      const resData = await response.json();
+      const cleanJsonStr = resData.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsedArray = JSON.parse(cleanJsonStr);
+
+      if (Array.isArray(parsedArray)) {
+        setParsedProposals(parsedArray.map(item => ({ ...item, category: '', id: crypto.randomUUID(), dayOrder: {} })));
+        showToast("Gemini AI가 일정을 추출했습니다.", "success");
+      }
+    } catch (err) { showToast("AI 분석 중 오류가 발생했습니다.", "error"); } finally { setIsAnalyzing(false); }
+  };
+
+  const handleUpdateProposalCategory = (id, name) => { setParsedProposals(prev => prev.map(p => p.id === id ? { ...p, category: name } : p)); setActiveProposalCatDropdownId(null); };
+  const handleAddSingleProposalCard = async (id) => {
+    const card = parsedProposals.find(p => p.id === id);
+    if (!card) return;
+    if (!card.category) { showToast("카테고리를 선택해 주세요!", "error"); setActiveProposalCatDropdownId(id); return; }
+    const payload = { ...card, createdAt: new Date().toISOString(), dayOrder: {} };
+    delete payload.id;
+    if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
+    setParsedProposals(prev => prev.filter(p => p.id !== id)); showToast("캘린더에 연동 등록했습니다.", "success");
+  };
+
+  // 카테고리 추가/수정/삭제/순서변경
+  const handleAddCategorySubmit = async () => {
+    if (!newCategoryName.trim()) return showToast("카테고리명을 입력해 주세요.", "error");
+    const trimmedName = newCategoryName.trim();
+
+    if (editingCategoryName) {
+      if (trimmedName !== editingCategoryName && categories[trimmedName]) {
+        return showToast("이미 존재하는 카테고리입니다.", "error");
+      }
+
+      const { [editingCategoryName]: oldStyling, ...restCategories } = categories;
+      const updatedCategories = { ...restCategories, [trimmedName]: NOTION_PALETTES[selectedPaletteKey] };
+      const updatedOrder = categoryOrder.map(name => name === editingCategoryName ? trimmedName : name);
+
+      setCategories(updatedCategories);
+      setCategoryOrder(updatedOrder);
+      setNewCategoryName('');
+      setEditingCategoryName(null);
+      if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...updatedCategories, __order: updatedOrder });
+      showToast("카테고리가 수정되었습니다.", "success");
+      return;
+    }
+
+    if (categories[trimmedName]) return showToast("이미 존재하는 카테고리입니다.", "error");
+    const updatedCategories = { ...categories, [trimmedName]: NOTION_PALETTES[selectedPaletteKey] };
+    const updatedOrder = [...categoryOrder, trimmedName];
+    setCategories(updatedCategories); setCategoryOrder(updatedOrder); setNewCategoryName('');
+    if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...updatedCategories, __order: updatedOrder });
+    showToast("카테고리가 추가되었습니다.", "success");
+  };
+
+  // 🔑 카테고리를 클릭하면 입력창/색상 선택에 해당 값을 채워 수정 모드로 진입
+  const handleSelectCategoryToEdit = (catName) => {
+    const styling = categories[catName] || NOTION_PALETTES.gray;
+    const matchedPaletteKey = Object.keys(NOTION_PALETTES).find(key => NOTION_PALETTES[key].color === styling.color) || 'red';
+    setNewCategoryName(catName);
+    setSelectedPaletteKey(matchedPaletteKey);
+    setEditingCategoryName(catName);
+  };
+
+  const handleCancelCategoryEdit = () => {
+    setEditingCategoryName(null);
+    setNewCategoryName('');
+    setSelectedPaletteKey('red');
+  };
+
+  const handleDeleteCategory = async (catName) => {
+    if (Object.keys(categories).length <= 1) return showToast("최소 1개 이상의 카테고리가 유지되어야 합니다.", "error");
+    const { [catName]: deleted, ...rest } = categories;
+    deleted // 미사용 경고 처리 방지
+    const updatedOrder = categoryOrder.filter(name => name !== catName);
+    setCategories(rest);
+    setCategoryOrder(updatedOrder);
+    if (editingCategoryName === catName) {
+      setEditingCategoryName(null);
+      setNewCategoryName('');
+    }
+    if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...rest, __order: updatedOrder });
+    showToast("카테고리가 삭제되었습니다.", "info");
+  };
+
+  // 🔑 카테고리 목록 드래그 앤 드롭 순서 변경 (일정 카드와 동일한 방식: 호버 시 실시간 스왑, 드래그 종료 시 1회 저장)
+  const handleCategoryDragStart = (e, catName) => {
+    setDraggedCategoryName(catName);
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.style.opacity = '0.3';
+  };
+
+  const handleCategoryDragEnd = async (e) => {
+    e.currentTarget.style.opacity = '1';
+    setDraggedCategoryName(null);
+    setDragOverCategoryName(null);
+
+    if (lastCategoryOrderRef.current && syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...categories, __order: lastCategoryOrderRef.current });
+    }
+    lastCategoryOrderRef.current = null;
+  };
+
+  const handleCategoryDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleCategoryDragEnter = (e, targetCatName) => {
+    e.preventDefault();
+    if (!draggedCategoryName || draggedCategoryName === targetCatName) return;
+
+    setDragOverCategoryName(targetCatName);
+
+    const draggedIdx = categoryOrder.indexOf(draggedCategoryName);
+    const targetIdx = categoryOrder.indexOf(targetCatName);
+    if (draggedIdx === -1 || targetIdx === -1 || draggedIdx === targetIdx) return;
+
+    const reorderedOrder = [...categoryOrder];
+    const [removed] = reorderedOrder.splice(draggedIdx, 1);
+    reorderedOrder.splice(targetIdx, 0, removed);
+
+    lastCategoryOrderRef.current = reorderedOrder;
+    setCategoryOrder(reorderedOrder);
+  };
+
+  const handleCategoryDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverCategoryName(null);
+  };
+
+  const saveSingleEventData = async (id, payload) => { if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'events', id), payload, { merge: true }); };
+  saveSingleEventData // 미사용 바인딩 경고 더미 우회
+
+  const activeDayMeal = useMemo(() => meals[selectedDateStr] || null, [meals, selectedDateStr]);
+  const calculatedDdayValue = useMemo(() => {
+    if (!todayNotice.ddayTarget) return '?';
+    const diff = new Date(todayNotice.ddayTarget + 'T00:00:00').getTime() - new Date().setHours(0,0,0,0);
+    const d = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    return d === 0 ? '─Day' : d > 0 ? `-${d}` : `+${Math.abs(d)}`;
+  }, [todayNotice.ddayTarget]);
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayIndex = new Date(year, month, 1).getDay();
+  const prevDaysInMonth = new Date(year, month, 0).getDate();
+
+  return (
+    <div className="min-h-screen bg-[#F7F7F5] text-[#37352F] font-sans antialiased flex flex-col select-none">
+      <DashboardHeader 
+        syncStatus={syncStatus} isAlwaysOnTop={isAlwaysOnTop} isMoveLocked={isMoveLocked} opacityValue={opacityValue}
+        isOpacityDropdownOpen={isOpacityDropdownOpen} setIsOpacityDropdownOpen={setIsOpacityDropdownOpen}
+        handleToggleAlwaysOnTop={handleToggleAlwaysOnTop} handleToggleMoveLock={handleToggleMoveLock}
+        handleOpacityChange={handleOpacityChange} handleMinimize={handleMinimize} handleMaximize={handleMaximize} handleClose={handleClose}
+        appVersion={appVersion}
+      />
+
+      <div className="flex-1 flex flex-row min-w-0 w-full relative overflow-hidden gap-1.5">
+        <div className="flex-1 flex flex-col gap-1.5 p-3 md:p-3.5 min-w-0 overflow-y-auto">
+          <TopWidgets 
+            todayNotice={todayNotice} activeNoticeIdx={activeNoticeIdx} setActiveNoticeIdx={setActiveNoticeIdx}
+            setNoticeFormList={setNoticeFormList} setIsNoticeEditOpen={setIsNoticeEditOpen} calculatedDdayValue={calculatedDdayValue}
+            setDdayForm={setDdayForm} setIsDdayEditOpen={setIsDdayEditOpen} currentTimeStr={currentTimeStr} currentDateStr={currentDateStr}
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-1.5 items-start w-full">
+            <CalendarBoard 
+              year={year} month={month} handlePrevMonth={handlePrevMonth} handleToday={handleToday} handleNextMonth={handleNextMonth}
+              setIsCategoryManageOpen={setIsCategoryManageOpen} firstDayIndex={firstDayIndex} prevDaysInMonth={prevDaysInMonth}
+              daysInMonth={daysInMonth} filteredEvents={filteredEvents} categories={categories} NOTION_PALETTES={NOTION_PALETTES}
+              extractHexColor={extractHexColor} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setNewEvent={setNewEvent}
+              setIsAddModalOpen={setIsAddModalOpen} setSelectedEvent={setSelectedEvent} setIsDetailModalOpen={setIsDetailModalOpen}
+              formatDateString={formatDateString} activeSidePanel={activeSidePanel}
+              onEventOrderChange={handleEventOrderPreview}
+              onEventOrderCommit={handleEventOrderCommit}
+              calendarList={calendarList} currentCalendarId={currentCalendarId}
+              isCalendarSwitcherOpen={isCalendarSwitcherOpen} setIsCalendarSwitcherOpen={setIsCalendarSwitcherOpen}
+              newCalendarName={newCalendarName} setNewCalendarName={setNewCalendarName}
+              handleCreateCalendar={handleCreateCalendar} handleDeleteCalendarEntry={handleDeleteCalendarEntry}
+              handleSwitchCalendar={handleSwitchCalendar}
+            />
+
+            {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
+            <SideAccordionPanel 
+              activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} selectedDate={selectedDate}
+              activeDayMeal={activeDayMeal} messengerInput={messengerInput} setMessengerInput={setMessengerInput}
+              handleAnalyzeMessengerText={handleAnalyzeMessengerText} isAnalyzing={isAnalyzing} parsedProposals={parsedProposals}
+              setParsedProposals={setParsedProposals} categories={categories} categoryOrder={categoryOrder} NOTION_PALETTES={NOTION_PALETTES}
+              activeProposalCatDropdownId={activeProposalCatDropdownId} setActiveProposalCatDropdownId={setActiveProposalCatDropdownId}
+              handleUpdateProposalCategory={handleUpdateProposalCategory} handleAddSingleProposalCard={handleAddSingleProposalCard}
+              handleEditProposal={handleEditProposal}
+              bookmarks={bookmarks} handleOpenBookmarkUrl={handleOpenBookmarkUrl} handleDeleteBookmark={handleDeleteBookmark}
+              newBookmarkTitle={newBookmarkTitle} setNewBookmarkTitle={setNewBookmarkTitle} newBookmarkUrl={newBookmarkUrl}
+              setNewBookmarkUrl={setNewBookmarkUrl} handleAddBookmarkSubmit={handleAddBookmarkSubmit}
+              customTimetables={customTimetables} onUpdateGlobalTimetables={handleUpdateGlobalTimetables}
+            />
+          </div>
+        </div>
+
+        {/* 최우측 레이아웃 인덱스 네비게이션 */}
+        <div className="w-14 bg-white border-l border-[#E9E9E6] flex flex-col items-center py-4 justify-start gap-5 z-40 shrink-0 window-no-drag shadow-xs">
+          <button type="button" onClick={() => toggleSidePanel('meal')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'meal' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Utensils className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('timetable')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'timetable' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><CalendarIcon className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('ai')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'ai' ? 'bg-purple-50 border-purple-200 text-purple-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Sparkles className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'bookmark' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'salary' ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
+        </div>
+      </div>
+
+      {/* 일정 등록 모달창 */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2">
+                <Plus className="w-5 h-5 text-purple-700" /> {editingProposalId ? '분석 일정 수정' : '신규 일정 등록'}
+              </h3>
+              <button onClick={handleCloseAddModal} className="p-1 hover:bg-gray-100 rounded transition"><X className="w-5 h-5" /></button>
+            </div>
+
+            <form onSubmit={handleAddEventSubmit} className="space-y-4 text-sm">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">일정 제목 *</label>
+                <input
+                  type="text" required placeholder="예: 2학기 교내 자율 연수 협의회" value={newEvent.title}
+                  onChange={(e) => setNewEvent(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex flex-col relative">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Palette className="w-3.5 h-3.5 text-gray-400" /> 카테고리 선택 *</label>
+                  <button type="button" onClick={() => setIsAddCatDropdownOpen(!isAddCatDropdownOpen)} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] flex items-center justify-between hover:bg-gray-50 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-3 h-3 rounded-full ${(categories[newEvent.category] || NOTION_PALETTES.gray).bg} border ${(categories[newEvent.category] || NOTION_PALETTES.gray).border}`}></span>
+                      <span className="font-semibold text-xs">{newEvent.category}</span>
+                    </div>
+                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                  </button>
+                  {isAddCatDropdownOpen && (
+                    <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {categoryOrder.map((catName) => {
+                        const styling = categories[catName];
+                        if (!styling) return null;
+                        return (
+                          <button key={catName} type="button" onClick={() => { setNewEvent(prev => ({ ...prev, category: catName })); setIsAddCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
+                            <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                            <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5 text-gray-400" /> 담당 교사</label><input type="text" placeholder="공란 입력 시 익명 처리" value={newEvent.manager} onChange={(e) => setNewEvent(prev => ({ ...prev, manager: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label><input type="date" required value={newEvent.startDate} onChange={(e) => setNewEvent(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label><input type="date" value={newEvent.endDate} onChange={(e) => setNewEvent(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 시작 시간</label><input type="time" value={newEvent.startTime} onChange={(e) => setNewEvent(prev => ({ ...prev, startTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 종료 시간</label><input type="time" value={newEvent.endTime} onChange={(e) => setNewEvent(prev => ({ ...prev, endTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 장소</label><input type="text" placeholder="예: 2학년 무한상상실" value={newEvent.location} onChange={(e) => setNewEvent(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3.5 h-3.5 text-gray-400" /> 신청인원 / 대상</label><input type="text" placeholder="예: 학년부 교사 전원" value={newEvent.applyCount} onChange={(e) => setNewEvent(prev => ({ ...prev, applyCount: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+              </div>
+
+              <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Link className="w-3.5 h-3.5 text-gray-400" /> 신청방법 / 링크</label><input type="text" placeholder="예: 리로스쿨 공지사항 등" value={newEvent.applyMethod} onChange={(e) => setNewEvent(prev => ({ ...prev, applyMethod: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+              <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} placeholder="추가 세부 사항을 기재해 주세요." value={newEvent.memo} onChange={(e) => setNewEvent(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+
+              <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
+                <button type="button" onClick={handleCloseAddModal} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                <button type="submit" className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">{editingProposalId ? '수정 완료' : '캘린더에 게시'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Detail & Action Management Modal */}
+      {isDetailModalOpen && selectedEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+              {isEditing ? (
+                <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Edit3 className="w-5 h-5 text-purple-700" /> 일정 수정</h3>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${(categories[selectedEvent.category] || NOTION_PALETTES.gray).bg} ${(categories[selectedEvent.category] || NOTION_PALETTES.gray).text}`}>{selectedEvent.category}</span>
+                  <span className="text-xs text-gray-400 font-medium">{selectedEvent.startDate} {selectedEvent.endDate && selectedEvent.endDate !== selectedEvent.startDate && `~ ${selectedEvent.endDate}`}</span>
+                </div>
+              )}
+              <button onClick={() => { setIsDetailModalOpen(false); setSelectedEvent(null); setIsEditing(false); }} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
+            </div>
+
+            {isEditing ? (
+              <div className="space-y-4 text-sm">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">일정 제목 *</label>
+                  <input
+                    type="text" required value={editEventForm.title}
+                    onChange={(e) => setEditEventForm(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex flex-col relative">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Palette className="w-3.5 h-3.5 text-gray-400" /> 카테고리 선택 *</label>
+                    <button type="button" onClick={() => setIsEditCatDropdownOpen(!isEditCatDropdownOpen)} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] flex items-center justify-between hover:bg-gray-50 text-left">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-3 h-3 rounded-full ${(categories[editEventForm.category] || NOTION_PALETTES.gray).bg} border ${(categories[editEventForm.category] || NOTION_PALETTES.gray).border}`}></span>
+                        <span className="font-semibold text-xs">{editEventForm.category}</span>
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {isEditCatDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                        {categoryOrder.map((catName) => {
+                          const styling = categories[catName];
+                          if (!styling) return null;
+                          return (
+                            <button key={catName} type="button" onClick={() => { setEditEventForm(prev => ({ ...prev, category: catName })); setIsEditCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
+                              <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                              <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5 text-gray-400" /> 담당 교사</label><input type="text" value={editEventForm.manager} onChange={(e) => setEditEventForm(prev => ({ ...prev, manager: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label><input type="date" required value={editEventForm.startDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label><input type="date" value={editEventForm.endDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 시작 시간</label><input type="time" value={editEventForm.startTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, startTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 종료 시간</label><input type="time" value={editEventForm.endTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, endTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 장소</label><input type="text" value={editEventForm.location} onChange={(e) => setEditEventForm(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3.5 h-3.5 text-gray-400" /> 신청인원 / 대상</label><input type="text" value={editEventForm.applyCount} onChange={(e) => setEditEventForm(prev => ({ ...prev, applyCount: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                </div>
+
+                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Link className="w-3.5 h-3.5 text-gray-400" /> 신청방법 / 링크</label><input type="text" value={editEventForm.applyMethod} onChange={(e) => setEditEventForm(prev => ({ ...prev, applyMethod: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} value={editEventForm.memo} onChange={(e) => setEditEventForm(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+
+                <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
+                  <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                  <button type="button" onClick={handleUpdateEvent} className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">수정 완료</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-4">
+                  <h3 className="text-lg font-extrabold text-[#37352F] break-all">{selectedEvent.title}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600 bg-[#F7F7F5] p-4 rounded-lg border border-[#E9E9E6]">
+                    <div className="flex items-center gap-2"><User className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">담당 교사</span> <span className="text-[#37352F] font-medium">{selectedEvent.manager || '-'}</span></div>
+                    <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">시간 구성</span> <span className="text-[#37352F] font-medium">{selectedEvent.startTime || selectedEvent.endTime ? `${selectedEvent.startTime || '미정'} ~ ${selectedEvent.endTime || '미정'}` : '-'}</span></div>
+                    <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">장소</span> <span className="text-[#37352F] font-medium">{selectedEvent.location || '-'}</span></div>
+                    <div className="flex items-center gap-2"><Users className="w-4 h-4 text-gray-400 shrink-0" /> <span className="font-semibold text-gray-400 w-16">인원 / 대상</span> <span className="text-[#37352F] font-medium">{selectedEvent.applyCount || '-'}</span></div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-gray-400 uppercase">상세 메모</p>
+                    <div className="bg-white border border-[#E9E9E6] p-3 rounded-md text-sm text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto break-all">{selectedEvent.memo || '등록된 내용이 없습니다.'}</div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between border-t border-[#E9E9E6] pt-4">
+                  <div className="text-[11px] text-gray-400">공유형 모드 라이브 상태입니다.</div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setEditEventForm({
+                          id: selectedEvent.id,
+                          title: selectedEvent.title || '',
+                          category: selectedEvent.category || (Object.keys(categories)[0] || '기타'),
+                          manager: selectedEvent.manager || '',
+                          startDate: selectedEvent.startDate || '',
+                          endDate: selectedEvent.endDate || '',
+                          startTime: selectedEvent.startTime || '',
+                          endTime: selectedEvent.endTime || '',
+                          location: selectedEvent.location || '',
+                          applyMethod: selectedEvent.applyMethod || '',
+                          applyCount: selectedEvent.applyCount || '',
+                          memo: selectedEvent.memo || ''
+                        });
+                        setIsEditing(true);
+                      }}
+                      className="flex items-center gap-1 border border-purple-200 text-purple-700 px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-purple-50"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" /> 수정
+                    </button>
+                    <button onClick={() => handleDeleteEvent(selectedEvent.id)} className="flex items-center gap-1 border border-rose-200 text-rose-600 px-3 py-1.5 rounded-md text-xs font-semibold"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 설정 모달 */}
+      {isCategoryManageOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Settings className="w-5 h-5 text-gray-600" /> 교무실 통합 제어 설정</h3>
+              <button onClick={() => setIsCategoryManageOpen(false)} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="bg-purple-50/50 border border-purple-100 p-3.5 rounded-lg space-y-3">
+              <p className="text-xs font-bold text-purple-900">Gemini AI 비서 API 키 설정</p>
+              <input type="password" placeholder="AI_STUDIO_API_KEY 입력" value={tempApiKey} onChange={(e) => setTempApiKey(e.target.value)} className="w-full p-2 border border-purple-200 rounded text-xs bg-white focus:outline-none" />
+              <div className="flex gap-2">
+                <button type="button" onClick={handleSaveApiKeyToLocal} className="flex-1 py-1.5 border border-purple-300 text-purple-700 text-xs font-bold rounded">내PC에만 임시등록</button>
+                <button type="button" onClick={handleShareApiKeyToFirestore} className="flex-1 py-1.5 bg-purple-700 text-white text-xs font-bold rounded">전체교사 공유저장</button>
+              </div>
+            </div>
+
+            <div className="bg-[#F7F7F5] p-3.5 rounded-lg border border-[#E9E9E6] space-y-3">
+              <p className="text-xs font-bold text-gray-600">
+                {editingCategoryName ? `'${editingCategoryName}' 카테고리 수정` : '새 카테고리 추가'}
+              </p>
+              <input type="text" placeholder="카테고리 명칭 입력" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400" />
+
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">색상 선택</p>
+                <div className="flex items-center flex-wrap gap-2.5">
+                  {Object.entries(NOTION_PALETTES).map(([paletteKey, styling]) => (
+                    <button
+                      key={paletteKey} type="button" title={styling.label} onClick={() => setSelectedPaletteKey(paletteKey)}
+                      className={`w-6 h-6 rounded-full border-2 transition-all ${styling.bg} ${selectedPaletteKey === paletteKey ? 'border-[#37352F] scale-110 shadow-sm' : 'border-white hover:scale-105'}`}
+                    ></button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                {editingCategoryName && (
+                  <button type="button" onClick={handleCancelCategoryEdit} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded text-xs font-bold hover:bg-gray-100">취소</button>
+                )}
+                <button onClick={handleAddCategorySubmit} className={`flex-1 py-2 text-white rounded text-xs font-bold ${editingCategoryName ? 'bg-purple-700 hover:bg-purple-800' : 'bg-emerald-700 hover:bg-emerald-800'}`}>
+                  {editingCategoryName ? '수정 완료' : '+ 등록'}
+                </button>
+              </div>
+
+              <div className="pt-3 border-t border-[#E9E9E6] space-y-1.5">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">저장된 카테고리 ({Object.keys(categories).length}개) · 드래그로 순서 변경</p>
+                <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
+                  {categoryOrder.map((catName) => {
+                    const styling = categories[catName];
+                    if (!styling) return null;
+                    const isHovered = dragOverCategoryName === catName;
+                    return (
+                      <div 
+                        key={catName}
+                        draggable="true"
+                        onDragStart={(e) => handleCategoryDragStart(e, catName)}
+                        onDragEnd={handleCategoryDragEnd}
+                        onDragOver={handleCategoryDragOver}
+                        onDragEnter={(e) => handleCategoryDragEnter(e, catName)}
+                        onDrop={handleCategoryDrop}
+                        onClick={() => handleSelectCategoryToEdit(catName)}
+                        className={`flex items-center justify-between bg-white border rounded-md px-2.5 py-1.5 cursor-pointer
+                          transition-all duration-300 transform origin-center
+                          ${isHovered ? 'scale-[1.03] -translate-y-0.5 shadow-md z-20' : 'scale-100 translate-y-0'}
+                          active:cursor-grabbing
+                          ${editingCategoryName === catName ? 'border-purple-400 ring-1 ring-purple-200' : 'border-[#E9E9E6] hover:border-purple-200'}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Menu className="w-3.5 h-3.5 text-gray-300 shrink-0 cursor-grab" />
+                          <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                          <span className="text-xs font-semibold text-gray-700 truncate">{catName}</span>
+                        </div>
+                        <button 
+                          type="button" 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteCategory(catName); }} 
+                          className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <button onClick={() => setIsCategoryManageOpen(false)} className="w-full py-2 bg-gray-100 text-gray-700 rounded text-xs font-bold">설정 닫기</button>
+          </div>
+        </div>
+      )}
+
+      {/* 오늘의 한마디 수정 모달 */}
+      {isNoticeEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><MessageSquare className="w-5 h-5 text-purple-700" /> 오늘의 한마디 등록</h3>
+              <button onClick={() => setIsNoticeEditOpen(false)} className="p-1 hover:bg-gray-100 rounded transition"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3.5 max-h-[55vh] overflow-y-auto pr-1">
+              {noticeFormList.map((notice, idx) => (
+                <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center bg-[#F7F7F5]/50 border border-gray-100 p-3 rounded-lg relative">
+                  <div className="md:col-span-3 flex flex-col">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1">오늘의 한마디({idx + 1})</label>
+                    <input type="text" placeholder="칠판에 띄울 안내 핵심 내용을 기입하세요." value={notice.text || ''} onChange={(e) => { const copy = [...noticeFormList]; copy[idx].text = e.target.value; setNoticeFormList(copy); }} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-white text-xs font-semibold focus:outline-none" />
+                  </div>
+                  <div className="md:col-span-1 flex items-end gap-1.5">
+                    <div className="flex-1 flex flex-col">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase mb-1">작성자</label>
+                      <input type="text" placeholder="예: 홍길동" value={notice.author || ''} onChange={(e) => { const copy = [...noticeFormList]; copy[idx].author = e.target.value; setNoticeFormList(copy); }} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-white text-xs focus:outline-none" />
+                    </div>
+                    <button type="button" disabled={noticeFormList.length <= 1} onClick={() => setNoticeFormList(noticeFormList.filter((_, i) => i !== idx))} className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded border border-transparent hover:border-rose-100 disabled:opacity-40 mb-0.5"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => setNoticeFormList([...noticeFormList, { text: '', author: '' }])} className="w-full py-2.5 border border-dashed border-purple-200 text-purple-700 bg-purple-50/30 hover:bg-purple-50 transition-all rounded-lg text-xs font-black">+ 오늘의 한마디 추가</button>
+            <div className="flex gap-3 pt-3 border-t border-[#E9E9E6]">
+              <button onClick={() => setIsNoticeEditOpen(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+              <button onClick={handleUpdateNotice} className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 디데이 설정 모달 */}
+      {isDdayEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Pin className="w-5 h-5 text-rose-500 fill-current" /> D-Day 설정</h3>
+              <button onClick={() => setIsDdayEditOpen(false)} className="p-1 hover:bg-gray-100 rounded transition"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-4 text-sm">
+              <div><label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">이벤트 이름 *</label><input type="text" placeholder="예: 1차 지필평가, 수능" value={ddayForm.label} onChange={(e) => setDdayForm({...ddayForm, label: e.target.value})} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-rose-400 font-semibold" /></div>
+              <div><label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">이벤트 날짜 *</label><input type="date" value={ddayForm.date} onChange={(e) => setDdayForm({...ddayForm, date: e.target.value})} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-rose-400 text-xs font-medium" /></div>
+            </div>
+            <div className="flex flex-col gap-2 pt-3 border-t border-[#E9E9E6]">
+              <div className="flex gap-2">
+                <button onClick={() => setIsDdayEditOpen(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                <button onClick={handleUpdateDday} className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-md font-medium text-xs shadow-xs">저장</button>
+              </div>
+              {todayNotice.ddayTarget && <button type="button" onClick={handleClearDday} className="w-full py-1.5 border border-dashed border-gray-300 text-gray-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50/50 transition-all rounded text-xs font-bold flex items-center justify-center gap-1"><Trash2 className="w-3.5 h-3.5" /> <span>D-Day 비우기 (설정 없음으로 초기화)</span></button>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

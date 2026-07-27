@@ -1,0 +1,74 @@
+{
+  "name": "office-calendar",
+  "private": true,
+  "version": "1.2.0",
+  "main": "main.js",
+  "homepage": ".",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "electron:start": "electron .",
+    "electron:package": "vite build && electron-builder",
+    "electron:release": "vite build && dotenv -e .env -- electron-builder --publish always",
+    "deploy": "npx vite build && firebase deploy --only hosting"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "electron-updater": "^6.8.9",
+    "firebase": "^12.16.0",
+    "lucide-react": "^1.24.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "autoprefixer": "^10.5.3",
+    "cross-env": "^10.1.0",
+    "dotenv-cli": "^11.0.0",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
+    "postcss": "^8.5.19",
+    "tailwindcss": "^4.3.2",
+    "vite": "^8.1.1"
+  },
+  "build": {
+    "appId": "com.solnae.office-calendar",
+    "productName": "솔내고 2학년 공유 캘린더",
+    "directories": {
+      "output": "build_output"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Kimjongsic",
+      "repo": "office-calendar"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "preload.js",
+      "package.json"
+    ]
+  }
+}

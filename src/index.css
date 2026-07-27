@@ -1,0 +1,23 @@
+/* 1. Wanted Sans 가변(Variable) 웹폰트 불러오기 */
+@import url("https://cdn.jsdelivr.net/gh/wanteddev/wanted-sans@1.0.3/packages/wanted-sans/fonts/webfonts/variable/split/WantedSansVariable.min.css");
+
+/* 2. Tailwind CSS 엔진 로드 */
+@import "tailwindcss";
+
+/* 3. VS Code 경고 우회: 순수 CSS 가상 클래스로 Tailwind v4 폰트 오버라이딩 */
+:root {
+  --font-sans: "Wanted Sans Variable", "Wanted Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "Wanted Sans Variable", "Wanted Sans", monospace;
+}
+
+/* 4. 브라우저 전역 및 기본 스타일 설정 */
+body {
+  background-color: #FCFCFB;
+  color: #37352F;
+  font-family: var(--font-sans);
+}
+
+/* 5. 입력/폼 요소 전역 폰트 강제 통일 */
+input, button, select, textarea {
+  font-family: var(--font-sans);
+}

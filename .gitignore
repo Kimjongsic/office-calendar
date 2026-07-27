@@ -1,0 +1,39 @@
+*.exe
+public/updates/
+public/updates/*
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment variables (민감 정보 - 절대 커밋 금지)
+.env
+.env.local
+.env.*.local
+
+# Electron 빌드 산출물
+build_output
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# 빌드 결과물 및 실행 파일 제외
+public/updates/
+*.exe
