@@ -1,11 +1,6 @@
-<<<<<<< HEAD
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
-const path = require('path');
-=======
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 
 app.disableHardwareAcceleration(); // 🔑 GPU 가속 비활성화
 
@@ -53,13 +48,11 @@ ipcMain.on('window-minimize', () => { if (win) win.minimize(); });
 // 🔑 setBounds 우회 없이 네이티브 API만 사용 → Windows 네이티브 상태와 항상 일치
 ipcMain.on('window-maximize', () => {
   if (!win) return;
-  console.log('클릭 전:', win.isMaximized(), win.getBounds());
   if (win.isMaximized()) {
     win.unmaximize();
   } else {
     win.maximize();
   }
-  console.log('클릭 후:', win.isMaximized(), win.getBounds());
 });
 
 ipcMain.on('window-close', () => { if (win) win.close(); });
@@ -76,18 +69,13 @@ ipcMain.on('set-opacity', (event, value) => {
 });
 
 ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
-<<<<<<< HEAD
-=======
 ipcMain.handle('get-app-version', () => app.getVersion());
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 
 app.whenReady().then(() => {
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-<<<<<<< HEAD
-=======
 
   // 🔑 [신규] 패키징된 앱에서만 자동 업데이트 체크 (개발 모드에서는 동작 안 함)
   if (app.isPackaged) {
@@ -106,7 +94,6 @@ autoUpdater.on('update-downloaded', () => {
   }).then((result) => {
     if (result.response === 0) autoUpdater.quitAndInstall();
   });
->>>>>>> e9a225cc1ed8ba975b48fc5e3e2be29299ce89a1
 });
 
 app.on('window-all-closed', () => {
