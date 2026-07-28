@@ -137,6 +137,12 @@ export default function DashboardHeader({
                     <Download className="w-4 h-4" />
                     <p className="text-xs font-bold">새 버전 {updateInfo.version} 발견</p>
                   </div>
+                  {updateInfo.releaseNotes && (
+                    <div 
+                      className="text-[11px] text-gray-600 bg-[#F7F7F5] border border-[#E9E9E6] rounded-md p-2 max-h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: updateInfo.releaseNotes }}
+                    />
+                  )}
                   <p className="text-[11px] text-gray-500">업데이트를 받으시겠어요?</p>
                   <button onClick={handleStartUpdateDownload} className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-bold">업데이트 받기</button>
                 </>
@@ -160,6 +166,12 @@ export default function DashboardHeader({
                     <PartyPopper className="w-4 h-4" />
                     <p className="text-xs font-bold">버전 {updateInfo.version} 준비 완료</p>
                   </div>
+                  {updateInfo.releaseNotes && (
+                    <div 
+                      className="text-[11px] text-gray-600 bg-[#F7F7F5] border border-[#E9E9E6] rounded-md p-2 max-h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: updateInfo.releaseNotes }}
+                    />
+                  )}
                   <p className="text-[11px] text-gray-500">지금 재시작해서 적용할까요?</p>
                   <button onClick={handleQuitAndInstall} className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold">지금 재시작</button>
                 </>

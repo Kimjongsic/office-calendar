@@ -90,7 +90,7 @@ app.whenReady().then(() => {
 
 // 🔑 새 버전 발견 시 다이얼로그 대신 렌더러로 정보만 조용히 전달
 autoUpdater.on('update-available', (info) => {
-  if (win) win.webContents.send('update-status', { status: 'available', version: info.version });
+  if (win) win.webContents.send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes });
 });
 
 autoUpdater.on('update-not-available', () => {
@@ -102,7 +102,7 @@ autoUpdater.on('download-progress', (progress) => {
 });
 
 autoUpdater.on('update-downloaded', (info) => {
-  if (win) win.webContents.send('update-status', { status: 'downloaded', version: info.version });
+  if (win) win.webContents.send('update-status', { status: 'downloaded', version: info.version, releaseNotes: info.releaseNotes });
 });
 
 autoUpdater.on('error', (err) => {
