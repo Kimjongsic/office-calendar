@@ -80,20 +80,27 @@ app.whenReady().then(() => {
 
   console.log('app.isPackaged 값:', app.isPackaged); // 🔑 [임시 디버깅용]
 
-  // 🔑 [신규] 패키징된 앱에서만 자동 업데이트 체크 (개발 모드에서는 동작 안 함)
+   // 🔑 [신규] 패키징된 앱에서만 자동 업데이트 체크 (개발 모드에서는 동작 안 함)
   if (app.isPackaged) {
-    autoUpdater.checkForUpdatesAndNotify();
-
-    // 🔑 [임시 디버깅용] 확인 후 제거
-    autoUpdater.on('checking-for-update', () => console.log('업데이트 확인 중...'));
-    autoUpdater.on('update-available', (info) => console.log('새 버전 발견:', info.version));
-    autoUpdater.on('update-not-available', (info) => console.log('이미 최신 버전:', info.version));
-    autoUpdater.on('download-progress', (p) => console.log('다운로드 중:', Math.round(p.percent) + '%'));
-    autoUpdater.on('error', (err) => console.log('업데이트 오류:', err.message));
+    autoUpdater.autoDownload = false; // 🔑 감지 즉시 자동 다운로드하지 않고, 사용자 확인 후 다운로드
+    autoUpdater.checkForUpdates();
   }
 });
 
-// 🔑 [신규] 새 버전이 백그라운드에 다 받아지면, 사용자에게 재시작해서 적용할지 물어봄
+// 🔑 [신규] 새 버전을 발견한 즉시(다운로드 전) 먼저 사용자에게 안내하고, 동의하면 다운로드 시작
+autoUpdater.on('update-available', (info) => {
+  dialog.showMessageBox({
+    type: 'info',
+    title: '업데이트 확인',
+    message: `새 버전(${info.version})이 있습니다. 지금 업데이트를 받을까요?`,
+    buttons: ['업데이트', '나중에'],
+    defaultId: 0,
+  }).then((result) => {
+    if (result.response === 0) autoUpdater.downloadUpdate();
+  });
+});
+
+// 🔑 [신규] 다운로드가 다 끝나면, 재시작해서 적용할지 물어봄
 autoUpdater.on('update-downloaded', () => {
   dialog.showMessageBox({
     type: 'info',

@@ -27,7 +27,7 @@ export default function DashboardHeader({
           </div>
           <div>
             <h1 className="text-base font-black flex items-center gap-2">
-              교무실 공유 캘린더(test)
+              교무실 공유 캘린더
               {isMoveLocked && <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">위치 잠김</span>}
             </h1>
             <p className="text-[11px] text-gray-500 font-medium">
