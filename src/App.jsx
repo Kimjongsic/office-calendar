@@ -184,6 +184,8 @@ export default function App() {
   const [currentTimeStr, setCurrentTimeStr] = useState('');
   const [currentDateStr, setCurrentDateStr] = useState('');
   const [appVersion, setAppVersion] = useState('');
+  const [updateInfo, setUpdateInfo] = useState({ status: 'idle' }); // 🔑 idle | available | downloading | downloaded | error
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -225,6 +227,23 @@ export default function App() {
       window.electronAPI.getAppVersion().then(setAppVersion).catch(() => {});
     }
   }, []);
+
+  // 🔑 [신규] main.js에서 보내주는 업데이트 상태(있음/다운로드중/완료 등)를 구독
+  useEffect(() => {
+    if (!window.electronAPI?.onUpdateStatus) return;
+    const unsubscribe = window.electronAPI.onUpdateStatus((data) => {
+      setUpdateInfo(data);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleStartUpdateDownload = () => {
+    window.electronAPI?.startUpdateDownload();
+  };
+
+  const handleQuitAndInstall = () => {
+    window.electronAPI?.quitAndInstallUpdate();
+  };
 
   useEffect(() => {
     const activeKeys = Object.keys(categories);
@@ -738,6 +757,11 @@ export default function App() {
         handleToggleAlwaysOnTop={handleToggleAlwaysOnTop} handleToggleMoveLock={handleToggleMoveLock}
         handleOpacityChange={handleOpacityChange} handleMinimize={handleMinimize} handleMaximize={handleMaximize} handleClose={handleClose}
         appVersion={appVersion}
+        updateInfo={updateInfo}
+        isUpdateModalOpen={isUpdateModalOpen}
+        setIsUpdateModalOpen={setIsUpdateModalOpen}
+        handleStartUpdateDownload={handleStartUpdateDownload}
+        handleQuitAndInstall={handleQuitAndInstall}
       />
 
       <div className="flex-1 flex flex-row min-w-0 w-full relative overflow-hidden gap-1.5">

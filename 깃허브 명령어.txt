@@ -1,0 +1,8 @@
+git add .
+git commit -m "버전 1.2.2, releaseType release 설정"
+git tag v1.2.2
+git push
+git push origin v1.2.2
+npm run deploy
+npm run electron:package
+npx electron-builder --publish always

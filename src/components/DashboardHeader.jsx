@@ -1,12 +1,14 @@
 // src/components/DashboardHeader.jsx
 import React from 'react';
-import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X } from 'lucide-react';
+import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper } from 'lucide-react';
 
 export default function DashboardHeader({
   syncStatus, isAlwaysOnTop, isMoveLocked, opacityValue, isOpacityDropdownOpen,
   setIsOpacityDropdownOpen, handleToggleAlwaysOnTop, handleToggleMoveLock,
-  handleOpacityChange, handleMinimize, handleMaximize, handleClose, appVersion
+  handleOpacityChange, handleMinimize, handleMaximize, handleClose, appVersion,
+  updateInfo, isUpdateModalOpen, setIsUpdateModalOpen, handleStartUpdateDownload, handleQuitAndInstall
 }) {
+  const hasUpdateAvailable = updateInfo.status === 'available' || updateInfo.status === 'downloading' || updateInfo.status === 'downloaded';
   // 🔑 electronAPI 직접 호출 제거: IPC 호출은 App.jsx의 handleX 함수들이 이미 담당하고 있어서
   // 여기서 또 호출하면 클릭 한 번에 IPC가 두 번 전송되어(최대화→즉시 복원) 버튼이
   // 안 먹히는 것처럼 보이는 버그가 발생했음. prop으로 받은 핸들러만 그대로 사용.
@@ -113,6 +115,71 @@ export default function DashboardHeader({
           )}
         </div>
         
+        {/* 🔑 [신규] 업데이트 알림 종 아이콘 */}
+        <div className="relative">
+          <button 
+            type="button"
+            onClick={() => setIsUpdateModalOpen(!isUpdateModalOpen)}
+            className={`p-1.5 rounded-md transition-colors cursor-pointer ${hasUpdateAvailable ? 'text-amber-600 hover:bg-amber-50' : 'text-gray-400 hover:bg-gray-100'}`}
+            title={hasUpdateAvailable ? '새 업데이트가 있습니다' : '업데이트 없음'}
+          >
+            <Bell className="w-4 h-4" />
+            {hasUpdateAvailable && (
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-rose-500 rounded-full"></span>
+            )}
+          </button>
+
+          {isUpdateModalOpen && (
+            <div className="absolute right-0 mt-2 bg-white border border-[#E9E9E6] p-4 rounded-lg shadow-xl z-50 w-64 space-y-3">
+              {updateInfo.status === 'available' && (
+                <>
+                  <div className="flex items-center gap-2 text-amber-700">
+                    <Download className="w-4 h-4" />
+                    <p className="text-xs font-bold">새 버전 {updateInfo.version} 발견</p>
+                  </div>
+                  <p className="text-[11px] text-gray-500">업데이트를 받으시겠어요?</p>
+                  <button onClick={handleStartUpdateDownload} className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-bold">업데이트 받기</button>
+                </>
+              )}
+
+              {updateInfo.status === 'downloading' && (
+                <>
+                  <div className="flex items-center gap-2 text-amber-700">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <p className="text-xs font-bold">다운로드 중... {updateInfo.percent ?? 0}%</p>
+                  </div>
+                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-500 transition-all" style={{ width: `${updateInfo.percent ?? 0}%` }}></div>
+                  </div>
+                </>
+              )}
+
+              {updateInfo.status === 'downloaded' && (
+                <>
+                  <div className="flex items-center gap-2 text-emerald-700">
+                    <PartyPopper className="w-4 h-4" />
+                    <p className="text-xs font-bold">버전 {updateInfo.version} 준비 완료</p>
+                  </div>
+                  <p className="text-[11px] text-gray-500">지금 재시작해서 적용할까요?</p>
+                  <button onClick={handleQuitAndInstall} className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold">지금 재시작</button>
+                </>
+              )}
+
+              {updateInfo.status === 'not-available' && (
+                <p className="text-[11px] text-gray-400 text-center py-2">이미 최신 버전을 사용 중입니다.</p>
+              )}
+
+              {updateInfo.status === 'error' && (
+                <p className="text-[11px] text-rose-500 text-center py-2">업데이트 확인 중 오류가 발생했습니다.</p>
+              )}
+
+              {updateInfo.status === 'idle' && (
+                <p className="text-[11px] text-gray-400 text-center py-2">업데이트 확인 중...</p>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="w-px h-4 bg-gray-300 mx-1"></div>
         
         <button onClick={handleMinimize} className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-800 rounded-md cursor-pointer" title="최소화"><Minus className="w-3.5 h-3.5" /></button>

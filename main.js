@@ -80,37 +80,43 @@ app.whenReady().then(() => {
 
   console.log('app.isPackaged 값:', app.isPackaged); // 🔑 [임시 디버깅용]
 
-   // 🔑 [신규] 패키징된 앱에서만 자동 업데이트 체크 (개발 모드에서는 동작 안 함)
+   // 🔑 [신규] 패키징된 앱에서만 자동 업데이트 체크. 팝업 없이 조용히 확인만 하고,
+  // 결과는 렌더러(React)로 전달해서 헤더 알림 아이콘으로 표시함
   if (app.isPackaged) {
-    autoUpdater.autoDownload = false; // 🔑 감지 즉시 자동 다운로드하지 않고, 사용자 확인 후 다운로드
+    autoUpdater.autoDownload = false;
     autoUpdater.checkForUpdates();
   }
 });
 
-// 🔑 [신규] 새 버전을 발견한 즉시(다운로드 전) 먼저 사용자에게 안내하고, 동의하면 다운로드 시작
+// 🔑 새 버전 발견 시 다이얼로그 대신 렌더러로 정보만 조용히 전달
 autoUpdater.on('update-available', (info) => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: '업데이트 확인',
-    message: `새 버전(${info.version})이 있습니다. 지금 업데이트를 받을까요?`,
-    buttons: ['업데이트', '나중에'],
-    defaultId: 0,
-  }).then((result) => {
-    if (result.response === 0) autoUpdater.downloadUpdate();
-  });
+  if (win) win.webContents.send('update-status', { status: 'available', version: info.version });
 });
 
-// 🔑 [신규] 다운로드가 다 끝나면, 재시작해서 적용할지 물어봄
-autoUpdater.on('update-downloaded', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: '업데이트 준비 완료',
-    message: '새 버전이 다운로드되었습니다. 지금 재시작해서 적용할까요?',
-    buttons: ['지금 재시작', '나중에'],
-    defaultId: 0,
-  }).then((result) => {
-    if (result.response === 0) autoUpdater.quitAndInstall();
-  });
+autoUpdater.on('update-not-available', () => {
+  if (win) win.webContents.send('update-status', { status: 'not-available' });
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  if (win) win.webContents.send('update-status', { status: 'downloading', percent: Math.round(progress.percent) });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  if (win) win.webContents.send('update-status', { status: 'downloaded', version: info.version });
+});
+
+autoUpdater.on('error', (err) => {
+  if (win) win.webContents.send('update-status', { status: 'error', message: err.message });
+});
+
+// 🔑 렌더러(모달의 "업데이트" 버튼)에서 요청할 때만 실제 다운로드 시작
+ipcMain.on('start-update-download', () => {
+  autoUpdater.downloadUpdate();
+});
+
+// 🔑 렌더러(모달의 "재시작" 버튼)에서 요청할 때 설치 후 재시작
+ipcMain.on('quit-and-install-update', () => {
+  autoUpdater.quitAndInstall();
 });
 
 app.on('window-all-closed', () => {
