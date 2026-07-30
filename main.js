@@ -96,7 +96,10 @@ ipcMain.handle('google-connect', () => {
     const authUrl = oAuth2Client.generateAuthUrl({
       access_type: 'offline', // refresh token을 받기 위해 필수
       prompt: 'consent',      // 매번 동의 화면을 띄워서 refresh token을 확실히 받음
-      scope: ['https://www.googleapis.com/auth/calendar'],
+      scope: [
+        'https://www.googleapis.com/auth/calendar',
+        'https://www.googleapis.com/auth/userinfo.email', // 🔑 로그인한 계정의 이메일 조회용
+      ],
     });
 
     const server = http.createServer(async (req, res) => {
@@ -104,7 +107,8 @@ ipcMain.handle('google-connect', () => {
       const urlObj = new URL(req.url, GOOGLE_REDIRECT_URI);
       const code = urlObj.searchParams.get('code');
 
-      res.end('로그인이 완료되었습니다. 이 창은 닫으셔도 됩니다.');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('<html><body style="font-family:sans-serif;text-align:center;padding-top:60px;"><h2>로그인이 완료되었습니다</h2><p>이 창은 닫으셔도 됩니다.</p></body></html>');
       server.close();
 
       if (!code) {
