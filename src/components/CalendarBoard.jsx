@@ -1,6 +1,6 @@
 // src/components/CalendarBoard.jsx
 import React, { useState, useRef, useMemo, useLayoutEffect } from 'react';
-import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X, Calendar as CalendarIcon, LogIn, Mail } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X, Calendar as CalendarIcon } from 'lucide-react';
 
 export default function CalendarBoard({
   year, month, handlePrevMonth, handleToday, handleNextMonth, setIsCategoryManageOpen,
@@ -11,8 +11,17 @@ export default function CalendarBoard({
   onEventOrderCommit,   // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
   calendarList, currentCalendarId, isCalendarSwitcherOpen, setIsCalendarSwitcherOpen,
   newCalendarName, setNewCalendarName, handleCreateCalendar, handleDeleteCalendarEntry, handleSwitchCalendar,
-  googleAccountEmail, isGoogleConnecting, handleGoogleConnect, handleGoogleDisconnect, handleSwitchToGoogleCalendar
+  googleAccountEmail, handleSwitchToGoogleCalendar
 }) {
+  // 🔑 구글 4색 로고 (연동됐을 때만 탭에 표시)
+  const GoogleLogoIcon = () => (
+    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" aria-hidden="true">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.25 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.85A10.99 10.99 0 0 0 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09A6.6 6.6 0 0 1 5.5 12c0-.73.12-1.44.34-2.09V7.06H2.18A11 11 0 0 0 1 12c0 1.77.42 3.45 1.18 4.94l3.66-2.85z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.9 1 4.34 3.34 2.18 6.94l3.66 2.85C6.71 7.19 9.14 5.38 12 5.38z"/>
+    </svg>
+  );
 
   // 이번 달 마지막 주에 이어지는 다음 달 첫 주의 남은 날짜 계산 공식
   const totalCellsUsedSoFar = firstDayIndex + daysInMonth;
@@ -215,7 +224,9 @@ export default function CalendarBoard({
   // 이벤트 카드 렌더러 함수
   const renderEventCard = (event, dateStr) => {
     const theme = categories[event.category] || categories['기타'] || NOTION_PALETTES.gray;
-    const textColor = extractHexColor(theme.text);
+    const isGoogleColored = !!event.colorHex; // 🔑 구글 캘린더에서 가져온 일정은 자체 색상 사용
+    const cardBgColor = isGoogleColored ? event.colorHex : (theme.color || '#EAE4F2');
+    const textColor = isGoogleColored ? '#FFFFFF' : extractHexColor(theme.text);
     const isHovered = dragOverEventId === event.id;
 
     return (
@@ -235,9 +246,9 @@ export default function CalendarBoard({
           ${isHovered ? 'scale-[1.03] -translate-y-0.5 shadow-md z-20' : 'scale-100 translate-y-0'}
           active:cursor-grabbing`}
         style={{ 
-          backgroundColor: theme.color || '#EAE4F2', 
+          backgroundColor: cardBgColor, 
           color: textColor, 
-          borderColor: theme.color || '#E3E2E0', 
+          borderColor: cardBgColor, 
           cursor: 'grab'
         }}
         title={event.title}
@@ -293,25 +304,15 @@ export default function CalendarBoard({
               </div>
             ))}
 
-            {/* 🔑 [신규] 개인 전용 구글 캘린더 탭 (다른 선생님에겐 안 보임) */}
-            {googleAccountEmail ? (
+            {/* 🔑 개인 전용 구글 캘린더 탭 — 연동됐을 때만 표시 (연동은 설정 모달에서) */}
+            {googleAccountEmail && (
               <button
                 type="button"
                 onClick={handleSwitchToGoogleCalendar}
                 className={`px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap transition-colors duration-150 shrink-0 ${currentCalendarId === 'google' ? 'bg-white text-blue-700 shadow-xs border border-[#E9E9E6]' : 'border border-transparent text-gray-400 hover:text-gray-700'}`}
                 title={googleAccountEmail}
               >
-                <Mail className="w-3.5 h-3.5" /> 내 구글 캘린더
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleGoogleConnect}
-                disabled={isGoogleConnecting}
-                className="px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap text-gray-400 hover:text-blue-700 hover:bg-white transition-colors shrink-0"
-                title="구글 캘린더 연결"
-              >
-                <LogIn className="w-3.5 h-3.5" /> {isGoogleConnecting ? '연결 중...' : '구글 연동'}
+                <GoogleLogoIcon /> 내 구글 캘린더
               </button>
             )}
 
@@ -386,10 +387,10 @@ export default function CalendarBoard({
               <div className="mt-1 flex-1 overflow-hidden space-y-1">
                 {visibleEvents.map(event => {
                   const theme = categories[event.category] || categories['기타'] || NOTION_PALETTES.gray;
-                  const baseColor = theme.color || '#EAE4F2';
-                  const textColor = extractHexColor(theme.text);
+                  const baseColor = event.colorHex || theme.color || '#EAE4F2';
+                  const textColor = event.colorHex ? '#FFFFFF' : extractHexColor(theme.text);
                   const transparentBg = baseColor.startsWith('#') ? `${baseColor}66` : baseColor;
-                  const transparentBorder = theme.color ? `${theme.color}66` : '#E3E2E0';
+                  const transparentBorder = `${baseColor}66`;
 
                   return (
                     <div 
@@ -491,10 +492,10 @@ export default function CalendarBoard({
               <div className="mt-1 flex-1 overflow-hidden space-y-1">
                 {visibleEvents.map(event => {
                   const theme = categories[event.category] || categories['기타'] || NOTION_PALETTES.gray;
-                  const baseColor = theme.color || '#EAE4F2';
-                  const textColor = extractHexColor(theme.text);
+                  const baseColor = event.colorHex || theme.color || '#EAE4F2';
+                  const textColor = event.colorHex ? '#FFFFFF' : extractHexColor(theme.text);
                   const transparentBg = baseColor.startsWith('#') ? `${baseColor}66` : baseColor;
-                  const transparentBorder = theme.color ? `${theme.color}66` : '#E3E2E0';
+                  const transparentBorder = `${baseColor}66`;
 
                   return (
                     <div 

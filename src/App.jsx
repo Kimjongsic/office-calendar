@@ -60,6 +60,13 @@ const extractHexColor = (className) => {
   return match ? match[0] : '#37352F';
 };
 
+// 🔑 구글 캘린더 이벤트의 colorId → 실제 색상 (구글 공식 팔레트 고정값)
+const GOOGLE_EVENT_COLOR_MAP = {
+  '1': '#7986CB', '2': '#33B679', '3': '#8E24AA', '4': '#E67C73', '5': '#F6BF26',
+  '6': '#F4511E', '7': '#039BE5', '8': '#616161', '9': '#3F51B5', '10': '#0B8043', '11': '#D50000'
+};
+const GOOGLE_DEFAULT_EVENT_COLOR = '#4285F4';
+
 export default function App() {
   const appId = 'notion-school-calendar';
 
@@ -98,6 +105,7 @@ export default function App() {
       memo: gEvent.description || '',
       dayOrder: {},
       createdAt: gEvent.created || new Date().toISOString(),
+      colorHex: GOOGLE_EVENT_COLOR_MAP[gEvent.colorId] || GOOGLE_DEFAULT_EVENT_COLOR, // 🔑 구글에서 지정한 일정 색상
     };
   };
 
@@ -942,8 +950,7 @@ export default function App() {
               newCalendarName={newCalendarName} setNewCalendarName={setNewCalendarName}
               handleCreateCalendar={handleCreateCalendar} handleDeleteCalendarEntry={handleDeleteCalendarEntry}
               handleSwitchCalendar={handleSwitchCalendar}
-              googleAccountEmail={googleAccountEmail} isGoogleConnecting={isGoogleConnecting}
-              handleGoogleConnect={handleGoogleConnect} handleGoogleDisconnect={handleGoogleDisconnect}
+              googleAccountEmail={googleAccountEmail}
               handleSwitchToGoogleCalendar={handleSwitchToGoogleCalendar}
             />
 
@@ -1168,6 +1175,21 @@ export default function App() {
             <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
               <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Settings className="w-5 h-5 text-gray-600" /> 교무실 통합 제어 설정</h3>
               <button onClick={() => setIsCategoryManageOpen(false)} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="bg-blue-50/50 border border-blue-100 p-3.5 rounded-lg space-y-3">
+              <p className="text-xs font-bold text-blue-900">개인 구글 캘린더 연동</p>
+              {googleAccountEmail ? (
+                <div className="flex items-center justify-between bg-white border border-blue-200 rounded-md px-3 py-2">
+                  <span className="text-xs font-semibold text-gray-700 truncate">{googleAccountEmail}</span>
+                  <button type="button" onClick={handleGoogleDisconnect} className="text-[11px] font-bold text-rose-600 hover:bg-rose-50 px-2 py-1 rounded shrink-0">연동 해제</button>
+                </div>
+              ) : (
+                <button type="button" onClick={handleGoogleConnect} disabled={isGoogleConnecting} className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded text-xs font-bold">
+                  {isGoogleConnecting ? '연결 중...' : '구글 계정 연결하기'}
+                </button>
+              )}
+              <p className="text-[10px] text-gray-400 leading-snug">연동한 구글 캘린더는 본인만 볼 수 있으며 다른 선생님과 공유되지 않습니다.</p>
             </div>
 
             <div className="bg-purple-50/50 border border-purple-100 p-3.5 rounded-lg space-y-3">
