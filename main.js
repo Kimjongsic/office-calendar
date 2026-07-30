@@ -1,6 +1,6 @@
-require('dotenv').config();
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { autoUpdater } = require('electron-updater');
 const { google } = require('googleapis');
 const Store = require('electron-store').default;
