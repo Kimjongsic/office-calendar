@@ -83,12 +83,15 @@ export default function App() {
   const mapGoogleEventToInternal = (gEvent) => {
     const startDate = gEvent.start?.date || (gEvent.start?.dateTime ? gEvent.start.dateTime.slice(0, 10) : '');
     const endDateRaw = gEvent.end?.date || (gEvent.end?.dateTime ? gEvent.end.dateTime.slice(0, 10) : startDate);
-    // 구글은 종일 일정의 종료일을 "다음날"로 주므로 하루 빼서 보정
+    // 구글은 여러 날짜에 걸친 종일 일정의 종료일을 "다음날"로 주므로 하루 빼서 보정.
+    // 단, 당일 하루짜리 일정은 start.date와 end.date가 이미 같은 날짜로 오므로 보정하면 안 됨
+    // (🔑 이전 버그: 당일 일정까지 하루를 빼서 endDate가 startDate보다 빨라져 화면에서 사라졌음)
     let endDate = endDateRaw;
-    if (gEvent.end?.date) {
-      const d = new Date(endDateRaw + 'T00:00:00');
-      d.setDate(d.getDate() - 1);
-      endDate = d.toISOString().slice(0, 10);
+    if (gEvent.end?.date && endDateRaw !== startDate) {
+      const [y, m, d] = endDateRaw.split('-').map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      dateObj.setDate(dateObj.getDate() - 1);
+      endDate = formatDateString(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
     }
     return {
       id: gEvent.id,
@@ -117,10 +120,12 @@ export default function App() {
       payload.end = { dateTime: `${form.endDate || form.startDate}T${form.endTime || form.startTime}:00`, timeZone: 'Asia/Seoul' };
     } else {
       // 종일 일정: 구글은 종료일을 "다음날"로 요구함
-      const endDateObj = new Date((form.endDate || form.startDate) + 'T00:00:00');
+      // 🔑 toISOString()은 UTC 변환이라 하루가 밀리므로, 로컬 날짜값으로 직접 계산 (읽기 쪽과 동일한 방식)
+      const [ey, em, ed] = (form.endDate || form.startDate).split('-').map(Number);
+      const endDateObj = new Date(ey, em - 1, ed);
       endDateObj.setDate(endDateObj.getDate() + 1);
       payload.start = { date: form.startDate };
-      payload.end = { date: endDateObj.toISOString().slice(0, 10) };
+      payload.end = { date: formatDateString(endDateObj.getFullYear(), endDateObj.getMonth(), endDateObj.getDate()) };
     }
     return payload;
   };
