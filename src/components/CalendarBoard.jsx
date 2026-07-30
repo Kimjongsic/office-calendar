@@ -1,6 +1,6 @@
 // src/components/CalendarBoard.jsx
 import React, { useState, useRef, useMemo, useLayoutEffect } from 'react';
-import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X, Calendar as CalendarIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X, Calendar as CalendarIcon, LogIn, Mail } from 'lucide-react';
 
 export default function CalendarBoard({
   year, month, handlePrevMonth, handleToday, handleNextMonth, setIsCategoryManageOpen,
@@ -10,7 +10,8 @@ export default function CalendarBoard({
   onEventOrderChange,   // 드래그 중 화면 미리보기 전용 (로컬 state만 갱신)
   onEventOrderCommit,   // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
   calendarList, currentCalendarId, isCalendarSwitcherOpen, setIsCalendarSwitcherOpen,
-  newCalendarName, setNewCalendarName, handleCreateCalendar, handleDeleteCalendarEntry, handleSwitchCalendar
+  newCalendarName, setNewCalendarName, handleCreateCalendar, handleDeleteCalendarEntry, handleSwitchCalendar,
+  googleAccountEmail, isGoogleConnecting, handleGoogleConnect, handleGoogleDisconnect, handleSwitchToGoogleCalendar
 }) {
 
   // 이번 달 마지막 주에 이어지는 다음 달 첫 주의 남은 날짜 계산 공식
@@ -291,6 +292,28 @@ export default function CalendarBoard({
                 )}
               </div>
             ))}
+
+            {/* 🔑 [신규] 개인 전용 구글 캘린더 탭 (다른 선생님에겐 안 보임) */}
+            {googleAccountEmail ? (
+              <button
+                type="button"
+                onClick={handleSwitchToGoogleCalendar}
+                className={`px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap transition-colors duration-150 shrink-0 ${currentCalendarId === 'google' ? 'bg-white text-blue-700 shadow-xs border border-[#E9E9E6]' : 'border border-transparent text-gray-400 hover:text-gray-700'}`}
+                title={googleAccountEmail}
+              >
+                <Mail className="w-3.5 h-3.5" /> 내 구글 캘린더
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleGoogleConnect}
+                disabled={isGoogleConnecting}
+                className="px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap text-gray-400 hover:text-blue-700 hover:bg-white transition-colors shrink-0"
+                title="구글 캘린더 연결"
+              >
+                <LogIn className="w-3.5 h-3.5" /> {isGoogleConnecting ? '연결 중...' : '구글 연동'}
+              </button>
+            )}
 
             <div className="relative shrink-0">
               <button

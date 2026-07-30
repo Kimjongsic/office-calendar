@@ -1,6 +1,24 @@
+require('dotenv').config();
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
+const { google } = require('googleapis');
+const Store = require('electron-store').default;
+const http = require('http');
+
+// 🔑 구글 캘린더 개인 연동 - 토큰은 이 PC에만 암호화 저장 (Firestore 전송 안 함)
+const googleTokenStore = new Store({ name: 'google-calendar-tokens', encryptionKey: 'office-calendar-local-secret' });
+
+const GOOGLE_REDIRECT_PORT = 53682;
+const GOOGLE_REDIRECT_URI = `http://localhost:${GOOGLE_REDIRECT_PORT}/oauth-callback`;
+
+function createGoogleOAuthClient() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI
+  );
+}
 
 app.disableHardwareAcceleration(); // 🔑 GPU 가속 비활성화
 
@@ -70,6 +88,116 @@ ipcMain.on('set-opacity', (event, value) => {
 
 ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// 🔑 구글 계정 연결 시작: 시스템 브라우저로 로그인 창을 열고, 로컬 서버로 인증 코드를 받음
+ipcMain.handle('google-connect', () => {
+  return new Promise((resolve, reject) => {
+    const oAuth2Client = createGoogleOAuthClient();
+    const authUrl = oAuth2Client.generateAuthUrl({
+      access_type: 'offline', // refresh token을 받기 위해 필수
+      prompt: 'consent',      // 매번 동의 화면을 띄워서 refresh token을 확실히 받음
+      scope: ['https://www.googleapis.com/auth/calendar'],
+    });
+
+    const server = http.createServer(async (req, res) => {
+      if (!req.url.startsWith('/oauth-callback')) return;
+      const urlObj = new URL(req.url, GOOGLE_REDIRECT_URI);
+      const code = urlObj.searchParams.get('code');
+
+      res.end('로그인이 완료되었습니다. 이 창은 닫으셔도 됩니다.');
+      server.close();
+
+      if (!code) {
+        reject(new Error('인증 코드가 없습니다.'));
+        return;
+      }
+
+      try {
+        const { tokens } = await oAuth2Client.getToken(code);
+        oAuth2Client.setCredentials(tokens);
+        const oauth2 = google.oauth2({ version: 'v2', auth: oAuth2Client });
+        const { data: profile } = await oauth2.userinfo.get();
+
+        googleTokenStore.set('tokens', tokens);
+        googleTokenStore.set('email', profile.email);
+        resolve({ email: profile.email });
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    server.listen(GOOGLE_REDIRECT_PORT, () => {
+      shell.openExternal(authUrl); // 🔑 시스템 기본 브라우저로 열기 (Electron 내장 창 아님)
+    });
+  });
+});
+
+// 🔑 현재 연결된 구글 계정 정보 조회 (연결 안 돼있으면 null)
+ipcMain.handle('google-get-account', () => {
+  const email = googleTokenStore.get('email');
+  return email ? { email } : null;
+});
+
+// 🔑 구글 계정 연결 해제
+ipcMain.handle('google-disconnect', () => {
+  googleTokenStore.clear();
+  return true;
+});
+
+// 🔑 저장된 토큰으로 인증된 OAuth2 클라이언트를 만드는 헬퍼
+function getAuthorizedGoogleClient() {
+  const tokens = googleTokenStore.get('tokens');
+  if (!tokens) return null;
+  const oAuth2Client = createGoogleOAuthClient();
+  oAuth2Client.setCredentials(tokens);
+  oAuth2Client.on('tokens', (newTokens) => {
+    // refresh token으로 access token이 자동 갱신되면 최신 토큰을 다시 저장
+    googleTokenStore.set('tokens', { ...tokens, ...newTokens });
+  });
+  return oAuth2Client;
+}
+
+// 🔑 구글 캘린더 일정 목록 가져오기 (특정 기간)
+ipcMain.handle('google-list-events', async (event, { timeMin, timeMax }) => {
+  const auth = getAuthorizedGoogleClient();
+  if (!auth) throw new Error('구글 계정이 연결되어 있지 않습니다.');
+  const calendar = google.calendar({ version: 'v3', auth });
+  const res = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin,
+    timeMax,
+    singleEvents: true,
+    orderBy: 'startTime',
+  });
+  return res.data.items || [];
+});
+
+// 🔑 구글 캘린더에 일정 추가
+ipcMain.handle('google-create-event', async (event, eventData) => {
+  const auth = getAuthorizedGoogleClient();
+  if (!auth) throw new Error('구글 계정이 연결되어 있지 않습니다.');
+  const calendar = google.calendar({ version: 'v3', auth });
+  const res = await calendar.events.insert({ calendarId: 'primary', requestBody: eventData });
+  return res.data;
+});
+
+// 🔑 구글 캘린더 일정 수정
+ipcMain.handle('google-update-event', async (event, { eventId, eventData }) => {
+  const auth = getAuthorizedGoogleClient();
+  if (!auth) throw new Error('구글 계정이 연결되어 있지 않습니다.');
+  const calendar = google.calendar({ version: 'v3', auth });
+  const res = await calendar.events.update({ calendarId: 'primary', eventId, requestBody: eventData });
+  return res.data;
+});
+
+// 🔑 구글 캘린더 일정 삭제
+ipcMain.handle('google-delete-event', async (event, eventId) => {
+  const auth = getAuthorizedGoogleClient();
+  if (!auth) throw new Error('구글 계정이 연결되어 있지 않습니다.');
+  const calendar = google.calendar({ version: 'v3', auth });
+  await calendar.events.delete({ calendarId: 'primary', eventId });
+  return true;
+});
 
 app.whenReady().then(() => {
   createWindow();

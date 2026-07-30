@@ -12,6 +12,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   startUpdateDownload: () => ipcRenderer.send('start-update-download'),
   quitAndInstallUpdate: () => ipcRenderer.send('quit-and-install-update'),
+  googleConnect: () => ipcRenderer.invoke('google-connect'),
+  googleGetAccount: () => ipcRenderer.invoke('google-get-account'),
+  googleDisconnect: () => ipcRenderer.invoke('google-disconnect'),
+  googleListEvents: (range) => ipcRenderer.invoke('google-list-events', range),
+  googleCreateEvent: (eventData) => ipcRenderer.invoke('google-create-event', eventData),
+  googleUpdateEvent: (payload) => ipcRenderer.invoke('google-update-event', payload),
+  googleDeleteEvent: (eventId) => ipcRenderer.invoke('google-delete-event', eventId),
   onUpdateStatus: (callback) => {
     const listener = (event, data) => callback(data);
     ipcRenderer.on('update-status', listener);

@@ -72,6 +72,51 @@ export default function App() {
     return collection(db, 'artifacts', appId, 'public', 'data', 'calendars', calendarId, 'events');
   };
 
+  // 🔑 구글 캘린더 이벤트 → 이 앱 내부 형식으로 변환
+  const mapGoogleEventToInternal = (gEvent) => {
+    const startDate = gEvent.start?.date || (gEvent.start?.dateTime ? gEvent.start.dateTime.slice(0, 10) : '');
+    const endDateRaw = gEvent.end?.date || (gEvent.end?.dateTime ? gEvent.end.dateTime.slice(0, 10) : startDate);
+    // 구글은 종일 일정의 종료일을 "다음날"로 주므로 하루 빼서 보정
+    let endDate = endDateRaw;
+    if (gEvent.end?.date) {
+      const d = new Date(endDateRaw + 'T00:00:00');
+      d.setDate(d.getDate() - 1);
+      endDate = d.toISOString().slice(0, 10);
+    }
+    return {
+      id: gEvent.id,
+      title: gEvent.summary || '(제목 없음)',
+      category: '구글 일정',
+      manager: '',
+      startDate,
+      endDate: endDate || startDate,
+      startTime: gEvent.start?.dateTime ? gEvent.start.dateTime.slice(11, 16) : '',
+      endTime: gEvent.end?.dateTime ? gEvent.end.dateTime.slice(11, 16) : '',
+      location: gEvent.location || '',
+      applyMethod: '',
+      applyCount: '',
+      memo: gEvent.description || '',
+      dayOrder: {},
+      createdAt: gEvent.created || new Date().toISOString(),
+    };
+  };
+
+  // 🔑 이 앱 내부 형식 → 구글 캘린더 이벤트 형식으로 변환
+  const mapInternalToGoogleEvent = (form) => {
+    const payload = { summary: form.title, description: form.memo || '', location: form.location || '' };
+    if (form.startTime) {
+      payload.start = { dateTime: `${form.startDate}T${form.startTime}:00`, timeZone: 'Asia/Seoul' };
+      payload.end = { dateTime: `${form.endDate || form.startDate}T${form.endTime || form.startTime}:00`, timeZone: 'Asia/Seoul' };
+    } else {
+      // 종일 일정: 구글은 종료일을 "다음날"로 요구함
+      const endDateObj = new Date((form.endDate || form.startDate) + 'T00:00:00');
+      endDateObj.setDate(endDateObj.getDate() + 1);
+      payload.start = { date: form.startDate };
+      payload.end = { date: endDateObj.toISOString().slice(0, 10) };
+    }
+    return payload;
+  };
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
 
@@ -93,6 +138,10 @@ export default function App() {
   const [currentCalendarId, setCurrentCalendarId] = useState('default');
   const [isCalendarSwitcherOpen, setIsCalendarSwitcherOpen] = useState(false);
   const [newCalendarName, setNewCalendarName] = useState('');
+
+  // 🔑 [신규] 구글 캘린더 개인 연동 — 다른 선생님과 공유되지 않는 개인 전용 탭
+  const [googleAccountEmail, setGoogleAccountEmail] = useState(null);
+  const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
 
   const [categories, setCategories] = useState({
     '교무회의': NOTION_PALETTES.red,
@@ -197,6 +246,9 @@ export default function App() {
     });
   }, [events, activeCategoryFilters]);
 
+  // 🔑 구글 일정은 Firestore 카테고리 목록에 없으니, 화면 표시용으로만 파란색 스타일을 병합
+  const displayCategories = useMemo(() => ({ ...categories, '구글 일정': NOTION_PALETTES.blue }), [categories]);
+
   const showToast = (message, type = 'info') => {
     toast // 미사용 방지 더미 조건부
     setToast({ show: true, message, type });
@@ -225,6 +277,15 @@ export default function App() {
   useEffect(() => {
     if (window.electronAPI?.getAppVersion) {
       window.electronAPI.getAppVersion().then(setAppVersion).catch(() => {});
+    }
+  }, []);
+
+  // 🔑 [신규] 이전에 연결해둔 구글 계정이 있는지 확인 (이 PC에만 저장된 정보)
+  useEffect(() => {
+    if (window.electronAPI?.googleGetAccount) {
+      window.electronAPI.googleGetAccount().then((account) => {
+        if (account) setGoogleAccountEmail(account.email);
+      }).catch(() => {});
     }
   }, []);
 
@@ -268,12 +329,38 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (currentCalendarId === 'google') return; // 🔑 구글 캘린더는 별도 이펙트에서 처리
     if (syncStatus !== 'connected' || !db) return;
     return onSnapshot(getEventsCollectionRef(currentCalendarId), (snapshot) => {
       const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
       setEvents(items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
     });
   }, [syncStatus, currentCalendarId]);
+
+  // 🔑 [신규] "내 구글 캘린더" 탭을 보고 있을 때, 현재 보이는 달 기준(+여유 7일)으로 구글 일정을 불러옴
+  const fetchGoogleEvents = async () => {
+    if (!window.electronAPI?.googleListEvents) return;
+    const rangeStart = new Date(year, month, 1);
+    rangeStart.setDate(rangeStart.getDate() - 7);
+    const rangeEnd = new Date(year, month + 1, 0);
+    rangeEnd.setDate(rangeEnd.getDate() + 7);
+    try {
+      const gEvents = await window.electronAPI.googleListEvents({
+        timeMin: rangeStart.toISOString(),
+        timeMax: rangeEnd.toISOString(),
+      });
+      setEvents(gEvents.map(mapGoogleEventToInternal));
+    } catch (err) {
+      console.error("구글 일정 조회 실패:", err);
+      showToast("구글 일정을 불러오지 못했습니다.", "error");
+    }
+  };
+
+  useEffect(() => {
+    if (currentCalendarId === 'google' && googleAccountEmail) {
+      fetchGoogleEvents();
+    }
+  }, [currentCalendarId, googleAccountEmail, year, month]);
 
   useEffect(() => {
     if (syncStatus !== 'connected' || !db) return;
@@ -434,6 +521,35 @@ export default function App() {
     setIsCalendarSwitcherOpen(false);
   };
 
+  // 🔑 [신규] 구글 계정 연결 (시스템 브라우저에서 로그인 진행)
+  const handleGoogleConnect = async () => {
+    if (!window.electronAPI?.googleConnect) return;
+    setIsGoogleConnecting(true);
+    try {
+      const result = await window.electronAPI.googleConnect();
+      setGoogleAccountEmail(result.email);
+      showToast(`${result.email} 계정이 연결되었습니다.`, "success");
+    } catch (err) {
+      console.error("구글 계정 연결 실패:", err);
+      showToast("구글 계정 연결에 실패했습니다.", "error");
+    } finally {
+      setIsGoogleConnecting(false);
+    }
+  };
+
+  const handleGoogleDisconnect = async () => {
+    if (!window.electronAPI?.googleDisconnect) return;
+    await window.electronAPI.googleDisconnect();
+    setGoogleAccountEmail(null);
+    if (currentCalendarId === 'google') setCurrentCalendarId('default');
+    showToast("구글 계정 연결이 해제되었습니다.", "info");
+  };
+
+  const handleSwitchToGoogleCalendar = () => {
+    setCurrentCalendarId('google');
+    setIsCalendarSwitcherOpen(false);
+  };
+
   // 🔑 [최적화] 드래그 중 화면 미리보기 전용: 로컬 state만 즉시 갱신, Firestore 쓰기 없음
   const handleEventOrderPreview = (updatedOrders) => {
     setEvents(prevEvents => prevEvents.map(ev => {
@@ -511,6 +627,19 @@ export default function App() {
     if (newEvent.manager.trim()) localStorage.setItem('school_calendar_manager', newEvent.manager);
     const payload = { ...newEvent, createdAt: new Date().toISOString(), dayOrder: {} };
 
+    if (currentCalendarId === 'google') {
+      try {
+        await window.electronAPI.googleCreateEvent(mapInternalToGoogleEvent(newEvent));
+        showToast("구글 캘린더에 일정이 등록되었습니다.", "success");
+        fetchGoogleEvents();
+      } catch (err) {
+        console.error("구글 일정 등록 실패:", err);
+        showToast("구글 일정 등록에 실패했습니다.", "error");
+      }
+      handleCloseAddModal();
+      return;
+    }
+
     if (syncStatus === 'connected' && db) {
       await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
       showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
@@ -520,12 +649,38 @@ export default function App() {
   };
 
   const handleUpdateEvent = async () => {
+    if (currentCalendarId === 'google') {
+      try {
+        await window.electronAPI.googleUpdateEvent({ eventId: editEventForm.id, eventData: mapInternalToGoogleEvent(editEventForm) });
+        showToast("구글 일정이 수정되었습니다.", "success");
+        fetchGoogleEvents();
+      } catch (err) {
+        console.error("구글 일정 수정 실패:", err);
+        showToast("구글 일정 수정에 실패했습니다.", "error");
+      }
+      setIsEditing(false); setIsDetailModalOpen(false);
+      return;
+    }
+
     if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId), editEventForm.id), editEventForm, { merge: true });
     else setEvents(events.map(ev => ev.id === editEventForm.id ? { ...ev, ...editEventForm } : ev));
     setIsEditing(false); setIsDetailModalOpen(false); showToast("수정 완료되었습니다.", "success");
   };
 
   const handleDeleteEvent = async (id) => {
+    if (currentCalendarId === 'google') {
+      try {
+        await window.electronAPI.googleDeleteEvent(id);
+        showToast("구글 일정이 삭제되었습니다.", "success");
+        fetchGoogleEvents();
+      } catch (err) {
+        console.error("구글 일정 삭제 실패:", err);
+        showToast("구글 일정 삭제에 실패했습니다.", "error");
+      }
+      setIsDetailModalOpen(false);
+      return;
+    }
+
     if (syncStatus === 'connected' && db) await deleteDoc(doc(getEventsCollectionRef(currentCalendarId), id));
     else setEvents(events.filter(ev => ev.id !== id));
     setIsDetailModalOpen(false); showToast("삭제 완료되었습니다.", "success");
@@ -776,7 +931,7 @@ export default function App() {
             <CalendarBoard 
               year={year} month={month} handlePrevMonth={handlePrevMonth} handleToday={handleToday} handleNextMonth={handleNextMonth}
               setIsCategoryManageOpen={setIsCategoryManageOpen} firstDayIndex={firstDayIndex} prevDaysInMonth={prevDaysInMonth}
-              daysInMonth={daysInMonth} filteredEvents={filteredEvents} categories={categories} NOTION_PALETTES={NOTION_PALETTES}
+              daysInMonth={daysInMonth} filteredEvents={filteredEvents} categories={displayCategories} NOTION_PALETTES={NOTION_PALETTES}
               extractHexColor={extractHexColor} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setNewEvent={setNewEvent}
               setIsAddModalOpen={setIsAddModalOpen} setSelectedEvent={setSelectedEvent} setIsDetailModalOpen={setIsDetailModalOpen}
               formatDateString={formatDateString} activeSidePanel={activeSidePanel}
@@ -787,6 +942,9 @@ export default function App() {
               newCalendarName={newCalendarName} setNewCalendarName={setNewCalendarName}
               handleCreateCalendar={handleCreateCalendar} handleDeleteCalendarEntry={handleDeleteCalendarEntry}
               handleSwitchCalendar={handleSwitchCalendar}
+              googleAccountEmail={googleAccountEmail} isGoogleConnecting={isGoogleConnecting}
+              handleGoogleConnect={handleGoogleConnect} handleGoogleDisconnect={handleGoogleDisconnect}
+              handleSwitchToGoogleCalendar={handleSwitchToGoogleCalendar}
             />
 
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
@@ -842,7 +1000,7 @@ export default function App() {
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Palette className="w-3.5 h-3.5 text-gray-400" /> 카테고리 선택 *</label>
                   <button type="button" onClick={() => setIsAddCatDropdownOpen(!isAddCatDropdownOpen)} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] flex items-center justify-between hover:bg-gray-50 text-left">
                     <div className="flex items-center gap-2">
-                      <span className={`w-3 h-3 rounded-full ${(categories[newEvent.category] || NOTION_PALETTES.gray).bg} border ${(categories[newEvent.category] || NOTION_PALETTES.gray).border}`}></span>
+                      <span className={`w-3 h-3 rounded-full ${(displayCategories[newEvent.category] || NOTION_PALETTES.gray).bg} border ${(displayCategories[newEvent.category] || NOTION_PALETTES.gray).border}`}></span>
                       <span className="font-semibold text-xs">{newEvent.category}</span>
                     </div>
                     <ChevronDown className="w-4 h-4 text-gray-400" />
