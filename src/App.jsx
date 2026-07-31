@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { db, initAnonymousAuth } from './firebase';
 // 드래그 앤 드롭 순서 변경의 원자적 일괄 처리를 위해 writeBatch 라이브러리 추가 바인딩
 import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
@@ -67,6 +67,22 @@ const GOOGLE_EVENT_COLOR_MAP = {
 };
 const GOOGLE_DEFAULT_EVENT_COLOR = '#4285F4';
 
+// 🔑 구글 캘린더 색상 선택 드롭다운에 쓰는 이름 목록 (구글 UI와 동일한 순서/명칭)
+const GOOGLE_COLOR_OPTIONS = [
+  { id: '', label: '기본값', hex: GOOGLE_DEFAULT_EVENT_COLOR },
+  { id: '1', label: '라벤더', hex: '#7986CB' },
+  { id: '2', label: '세이지', hex: '#33B679' },
+  { id: '3', label: '포도', hex: '#8E24AA' },
+  { id: '4', label: '플라밍고', hex: '#E67C73' },
+  { id: '5', label: '바나나', hex: '#F6BF26' },
+  { id: '6', label: '귤', hex: '#F4511E' },
+  { id: '7', label: '공작새', hex: '#039BE5' },
+  { id: '8', label: '그래파이트', hex: '#616161' },
+  { id: '9', label: '블루베리', hex: '#3F51B5' },
+  { id: '10', label: '바질', hex: '#0B8043' },
+  { id: '11', label: '토마토', hex: '#D50000' },
+];
+
 export default function App() {
   const appId = 'notion-school-calendar';
 
@@ -109,12 +125,14 @@ export default function App() {
       dayOrder: {},
       createdAt: gEvent.created || new Date().toISOString(),
       colorHex: GOOGLE_EVENT_COLOR_MAP[gEvent.colorId] || GOOGLE_DEFAULT_EVENT_COLOR, // 🔑 구글에서 지정한 일정 색상
+      colorId: gEvent.colorId || '', // 🔑 수정 폼에 그대로 반영하기 위해 원본 colorId도 보관
     };
   };
 
   // 🔑 이 앱 내부 형식 → 구글 캘린더 이벤트 형식으로 변환
   const mapInternalToGoogleEvent = (form) => {
     const payload = { summary: form.title, description: form.memo || '', location: form.location || '' };
+    if (form.colorId) payload.colorId = form.colorId; // 🔑 색상 지정 (빈 값이면 구글 기본색 유지)
     if (form.startTime) {
       payload.start = { dateTime: `${form.startDate}T${form.startTime}:00`, timeZone: 'Asia/Seoul' };
       payload.end = { dateTime: `${form.endDate || form.startDate}T${form.endTime || form.startTime}:00`, timeZone: 'Asia/Seoul' };
@@ -133,11 +151,11 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const formatDateString = (y, m, d) => {
+  const formatDateString = useCallback((y, m, d) => {
     const mm = String(m + 1).padStart(2, '0');
     const dd = String(d).padStart(2, '0');
     return `${y}-${mm}-${dd}`;
-  };
+  }, []);
 
   const selectedDateStr = useMemo(() => 
     formatDateString(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()), 
@@ -185,6 +203,8 @@ export default function App() {
 
   const [isAddCatDropdownOpen, setIsAddCatDropdownOpen] = useState(false);
   const [isEditCatDropdownOpen, setIsEditCatDropdownOpen] = useState(false);
+  const [isAddColorPickerOpen, setIsAddColorPickerOpen] = useState(false);
+  const [isEditColorPickerOpen, setIsEditColorPickerOpen] = useState(false);
 
   const [selectedEvent, setSelectedEvent] = useState(null);
 
@@ -193,13 +213,13 @@ export default function App() {
 
   const [newEvent, setNewEvent] = useState({
     title: '', category: '교무회의', manager: localStorage.getItem('school_calendar_manager') || '',
-    startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: ''
+    startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '', colorId: ''
   });
 
   const [isEditing, setIsEditing] = useState(false);
   const [editEventForm, setEditEventForm] = useState({
     id: '', title: '', category: '교무회의', manager: '', startDate: '', endDate: '',
-    startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: ''
+    startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '', colorId: ''
   });
 
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -997,59 +1017,151 @@ export default function App() {
               <button onClick={handleCloseAddModal} className="p-1 hover:bg-gray-100 rounded transition"><X className="w-5 h-5" /></button>
             </div>
 
-            <form onSubmit={handleAddEventSubmit} className="space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">일정 제목 *</label>
-                <input
-                  type="text" required placeholder="예: 2학기 교내 자율 연수 협의회" value={newEvent.title}
-                  onChange={(e) => setNewEvent(prev => ({ ...prev, title: e.target.value }))}
-                  className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex flex-col relative">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Palette className="w-3.5 h-3.5 text-gray-400" /> 카테고리 선택 *</label>
-                  <button type="button" onClick={() => setIsAddCatDropdownOpen(!isAddCatDropdownOpen)} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] flex items-center justify-between hover:bg-gray-50 text-left">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-3 h-3 rounded-full ${(displayCategories[newEvent.category] || NOTION_PALETTES.gray).bg} border ${(displayCategories[newEvent.category] || NOTION_PALETTES.gray).border}`}></span>
-                      <span className="font-semibold text-xs">{newEvent.category}</span>
-                    </div>
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
-                  </button>
-                  {isAddCatDropdownOpen && (
-                    <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {categoryOrder.map((catName) => {
-                        const styling = categories[catName];
-                        if (!styling) return null;
-                        return (
-                          <button key={catName} type="button" onClick={() => { setNewEvent(prev => ({ ...prev, category: catName })); setIsAddCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
-                            <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
-                            <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+            {currentCalendarId === 'google' ? (
+              // 🔑 구글 캘린더 전용 입력 양식 (제목/종일/기간/시간/위치/설명 — 구글 캘린더 UI와 동일한 구성)
+              <form onSubmit={handleAddEventSubmit} className="space-y-4 text-sm">
+                <div>
+                  <input
+                    type="text" required placeholder="제목 추가" value={newEvent.title}
+                    onChange={(e) => setNewEvent(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full p-2 border-b-2 border-[#E9E9E6] text-base font-medium focus:outline-none focus:border-blue-400"
+                  />
                 </div>
 
-                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5 text-gray-400" /> 담당 교사</label><input type="text" placeholder="공란 입력 시 익명 처리" value={newEvent.manager} onChange={(e) => setNewEvent(prev => ({ ...prev, manager: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label><input type="date" required value={newEvent.startDate} onChange={(e) => setNewEvent(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label><input type="date" value={newEvent.endDate} onChange={(e) => setNewEvent(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 시작 시간</label><input type="time" value={newEvent.startTime} onChange={(e) => setNewEvent(prev => ({ ...prev, startTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 종료 시간</label><input type="time" value={newEvent.endTime} onChange={(e) => setNewEvent(prev => ({ ...prev, endTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 장소</label><input type="text" placeholder="예: 2학년 무한상상실" value={newEvent.location} onChange={(e) => setNewEvent(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3.5 h-3.5 text-gray-400" /> 신청인원 / 대상</label><input type="text" placeholder="예: 학년부 교사 전원" value={newEvent.applyCount} onChange={(e) => setNewEvent(prev => ({ ...prev, applyCount: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-              </div>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-600 cursor-pointer w-fit">
+                    <input
+                      type="checkbox"
+                      checked={!newEvent.startTime}
+                      onChange={(e) => {
+                        if (e.target.checked) setNewEvent(prev => ({ ...prev, startTime: '', endTime: '' }));
+                        else setNewEvent(prev => ({ ...prev, startTime: '09:00', endTime: '10:00' }));
+                      }}
+                      className="w-3.5 h-3.5 accent-blue-600"
+                    />
+                    종일
+                  </label>
 
-              <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Link className="w-3.5 h-3.5 text-gray-400" /> 신청방법 / 링크</label><input type="text" placeholder="예: 리로스쿨 공지사항 등" value={newEvent.applyMethod} onChange={(e) => setNewEvent(prev => ({ ...prev, applyMethod: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-              <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} placeholder="추가 세부 사항을 기재해 주세요." value={newEvent.memo} onChange={(e) => setNewEvent(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  {/* 🔑 구글 캘린더 색상 선택 */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddColorPickerOpen(!isAddColorPickerOpen)}
+                      className="flex items-center gap-1 px-2 py-1 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] hover:bg-gray-100"
+                      title={(GOOGLE_COLOR_OPTIONS.find(o => o.id === (newEvent.colorId || '')) || GOOGLE_COLOR_OPTIONS[0]).label}
+                    >
+                      <span
+                        className="w-4 h-4 rounded-full"
+                        style={{ backgroundColor: (GOOGLE_COLOR_OPTIONS.find(o => o.id === (newEvent.colorId || '')) || GOOGLE_COLOR_OPTIONS[0]).hex }}
+                      />
+                      <ChevronDown className="w-3 h-3 text-gray-400" />
+                    </button>
+                    {isAddColorPickerOpen && (
+                      <div className="absolute right-0 top-full mt-1 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-3 w-56">
+                        <div className="grid grid-cols-6 gap-2">
+                          {GOOGLE_COLOR_OPTIONS.filter(o => o.id !== '').map(opt => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              title={opt.label}
+                              onClick={() => { setNewEvent(prev => ({ ...prev, colorId: opt.id })); setIsAddColorPickerOpen(false); }}
+                              className={`w-6 h-6 rounded-full transition-transform hover:scale-110 ${newEvent.colorId === opt.id ? 'ring-2 ring-offset-1 ring-gray-500' : ''}`}
+                              style={{ backgroundColor: opt.hex }}
+                            />
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setNewEvent(prev => ({ ...prev, colorId: '' })); setIsAddColorPickerOpen(false); }}
+                          className="w-full mt-3 pt-2.5 border-t border-[#E9E9E6] flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-800"
+                        >
+                          {!newEvent.colorId && <Check className="w-3.5 h-3.5 text-blue-600" />} 기본
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-              <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
-                <button type="button" onClick={handleCloseAddModal} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
-                <button type="submit" className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">{editingProposalId ? '수정 완료' : '캘린더에 게시'}</button>
-              </div>
-            </form>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label>
+                    <input type="date" required value={newEvent.startDate} onChange={(e) => setNewEvent(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" />
+                    {newEvent.startTime && (
+                      <input type="time" value={newEvent.startTime} onChange={(e) => setNewEvent(prev => ({ ...prev, startTime: e.target.value }))} className="w-full mt-1.5 p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" />
+                    )}
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label>
+                    <input type="date" value={newEvent.endDate} onChange={(e) => setNewEvent(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" />
+                    {newEvent.startTime && (
+                      <input type="time" value={newEvent.endTime} onChange={(e) => setNewEvent(prev => ({ ...prev, endTime: e.target.value }))} className="w-full mt-1.5 p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" />
+                    )}
+                  </div>
+                </div>
+
+                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 위치</label><input type="text" placeholder="위치 추가" value={newEvent.location} onChange={(e) => setNewEvent(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 설명</label><textarea rows={3} placeholder="설명 추가" value={newEvent.memo} onChange={(e) => setNewEvent(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+
+                <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
+                  <button type="button" onClick={handleCloseAddModal} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                  <button type="submit" className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium text-xs">저장</button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleAddEventSubmit} className="space-y-4 text-sm">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">일정 제목 *</label>
+                  <input
+                    type="text" required placeholder="예: 2학기 교내 자율 연수 협의회" value={newEvent.title}
+                    onChange={(e) => setNewEvent(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex flex-col relative">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Palette className="w-3.5 h-3.5 text-gray-400" /> 카테고리 선택 *</label>
+                    <button type="button" onClick={() => setIsAddCatDropdownOpen(!isAddCatDropdownOpen)} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] flex items-center justify-between hover:bg-gray-50 text-left">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-3 h-3 rounded-full ${(displayCategories[newEvent.category] || NOTION_PALETTES.gray).bg} border ${(displayCategories[newEvent.category] || NOTION_PALETTES.gray).border}`}></span>
+                        <span className="font-semibold text-xs">{newEvent.category}</span>
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {isAddCatDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                        {categoryOrder.map((catName) => {
+                          const styling = categories[catName];
+                          if (!styling) return null;
+                          return (
+                            <button key={catName} type="button" onClick={() => { setNewEvent(prev => ({ ...prev, category: catName })); setIsAddCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
+                              <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                              <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5 text-gray-400" /> 담당 교사</label><input type="text" placeholder="공란 입력 시 익명 처리" value={newEvent.manager} onChange={(e) => setNewEvent(prev => ({ ...prev, manager: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label><input type="date" required value={newEvent.startDate} onChange={(e) => setNewEvent(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label><input type="date" value={newEvent.endDate} onChange={(e) => setNewEvent(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 시작 시간</label><input type="time" value={newEvent.startTime} onChange={(e) => setNewEvent(prev => ({ ...prev, startTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 종료 시간</label><input type="time" value={newEvent.endTime} onChange={(e) => setNewEvent(prev => ({ ...prev, endTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 장소</label><input type="text" placeholder="예: 2학년 무한상상실" value={newEvent.location} onChange={(e) => setNewEvent(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3.5 h-3.5 text-gray-400" /> 신청인원 / 대상</label><input type="text" placeholder="예: 학년부 교사 전원" value={newEvent.applyCount} onChange={(e) => setNewEvent(prev => ({ ...prev, applyCount: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                </div>
+
+                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Link className="w-3.5 h-3.5 text-gray-400" /> 신청방법 / 링크</label><input type="text" placeholder="예: 리로스쿨 공지사항 등" value={newEvent.applyMethod} onChange={(e) => setNewEvent(prev => ({ ...prev, applyMethod: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} placeholder="추가 세부 사항을 기재해 주세요." value={newEvent.memo} onChange={(e) => setNewEvent(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+
+                <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
+                  <button type="button" onClick={handleCloseAddModal} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                  <button type="submit" className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">{editingProposalId ? '수정 완료' : '캘린더에 게시'}</button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -1071,59 +1183,150 @@ export default function App() {
             </div>
 
             {isEditing ? (
-              <div className="space-y-4 text-sm">
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">일정 제목 *</label>
-                  <input
-                    type="text" required value={editEventForm.title}
-                    onChange={(e) => setEditEventForm(prev => ({ ...prev, title: e.target.value }))}
-                    className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex flex-col relative">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Palette className="w-3.5 h-3.5 text-gray-400" /> 카테고리 선택 *</label>
-                    <button type="button" onClick={() => setIsEditCatDropdownOpen(!isEditCatDropdownOpen)} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] flex items-center justify-between hover:bg-gray-50 text-left">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-3 h-3 rounded-full ${(categories[editEventForm.category] || NOTION_PALETTES.gray).bg} border ${(categories[editEventForm.category] || NOTION_PALETTES.gray).border}`}></span>
-                        <span className="font-semibold text-xs">{editEventForm.category}</span>
-                      </div>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
-                    </button>
-                    {isEditCatDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                        {categoryOrder.map((catName) => {
-                          const styling = categories[catName];
-                          if (!styling) return null;
-                          return (
-                            <button key={catName} type="button" onClick={() => { setEditEventForm(prev => ({ ...prev, category: catName })); setIsEditCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
-                              <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
-                              <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+              currentCalendarId === 'google' ? (
+                // 🔑 구글 캘린더 전용 수정 양식
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <input
+                      type="text" required value={editEventForm.title}
+                      onChange={(e) => setEditEventForm(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full p-2 border-b-2 border-[#E9E9E6] text-base font-medium focus:outline-none focus:border-blue-400"
+                    />
                   </div>
 
-                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5 text-gray-400" /> 담당 교사</label><input type="text" value={editEventForm.manager} onChange={(e) => setEditEventForm(prev => ({ ...prev, manager: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label><input type="date" required value={editEventForm.startDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label><input type="date" value={editEventForm.endDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 시작 시간</label><input type="time" value={editEventForm.startTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, startTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 종료 시간</label><input type="time" value={editEventForm.endTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, endTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 장소</label><input type="text" value={editEventForm.location} onChange={(e) => setEditEventForm(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                  <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3.5 h-3.5 text-gray-400" /> 신청인원 / 대상</label><input type="text" value={editEventForm.applyCount} onChange={(e) => setEditEventForm(prev => ({ ...prev, applyCount: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                </div>
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-xs font-bold text-gray-600 cursor-pointer w-fit">
+                      <input
+                        type="checkbox"
+                        checked={!editEventForm.startTime}
+                        onChange={(e) => {
+                          if (e.target.checked) setEditEventForm(prev => ({ ...prev, startTime: '', endTime: '' }));
+                          else setEditEventForm(prev => ({ ...prev, startTime: '09:00', endTime: '10:00' }));
+                        }}
+                        className="w-3.5 h-3.5 accent-blue-600"
+                      />
+                      종일
+                    </label>
 
-                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Link className="w-3.5 h-3.5 text-gray-400" /> 신청방법 / 링크</label><input type="text" value={editEventForm.applyMethod} onChange={(e) => setEditEventForm(prev => ({ ...prev, applyMethod: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
-                <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} value={editEventForm.memo} onChange={(e) => setEditEventForm(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditColorPickerOpen(!isEditColorPickerOpen)}
+                        className="flex items-center gap-1 px-2 py-1 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] hover:bg-gray-100"
+                        title={(GOOGLE_COLOR_OPTIONS.find(o => o.id === (editEventForm.colorId || '')) || GOOGLE_COLOR_OPTIONS[0]).label}
+                      >
+                        <span
+                          className="w-4 h-4 rounded-full"
+                          style={{ backgroundColor: (GOOGLE_COLOR_OPTIONS.find(o => o.id === (editEventForm.colorId || '')) || GOOGLE_COLOR_OPTIONS[0]).hex }}
+                        />
+                        <ChevronDown className="w-3 h-3 text-gray-400" />
+                      </button>
+                      {isEditColorPickerOpen && (
+                        <div className="absolute right-0 top-full mt-1 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-3 w-56">
+                          <div className="grid grid-cols-6 gap-2">
+                            {GOOGLE_COLOR_OPTIONS.filter(o => o.id !== '').map(opt => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                title={opt.label}
+                                onClick={() => { setEditEventForm(prev => ({ ...prev, colorId: opt.id })); setIsEditColorPickerOpen(false); }}
+                                className={`w-6 h-6 rounded-full transition-transform hover:scale-110 ${editEventForm.colorId === opt.id ? 'ring-2 ring-offset-1 ring-gray-500' : ''}`}
+                                style={{ backgroundColor: opt.hex }}
+                              />
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setEditEventForm(prev => ({ ...prev, colorId: '' })); setIsEditColorPickerOpen(false); }}
+                            className="w-full mt-3 pt-2.5 border-t border-[#E9E9E6] flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-800"
+                          >
+                            {!editEventForm.colorId && <Check className="w-3.5 h-3.5 text-blue-600" />} 기본
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
-                <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
-                  <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
-                  <button type="button" onClick={handleUpdateEvent} className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">수정 완료</button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label>
+                      <input type="date" required value={editEventForm.startDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" />
+                      {editEventForm.startTime && (
+                        <input type="time" value={editEventForm.startTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, startTime: e.target.value }))} className="w-full mt-1.5 p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" />
+                      )}
+                    </div>
+                    <div className="flex flex-col">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label>
+                      <input type="date" value={editEventForm.endDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" />
+                      {editEventForm.startTime && (
+                        <input type="time" value={editEventForm.endTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, endTime: e.target.value }))} className="w-full mt-1.5 p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 위치</label><input type="text" placeholder="위치 추가" value={editEventForm.location} onChange={(e) => setEditEventForm(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 설명</label><textarea rows={3} placeholder="설명 추가" value={editEventForm.memo} onChange={(e) => setEditEventForm(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+
+                  <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
+                    <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                    <button type="button" onClick={handleUpdateEvent} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium text-xs">저장</button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">일정 제목 *</label>
+                    <input
+                      type="text" required value={editEventForm.title}
+                      onChange={(e) => setEditEventForm(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex flex-col relative">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Palette className="w-3.5 h-3.5 text-gray-400" /> 카테고리 선택 *</label>
+                      <button type="button" onClick={() => setIsEditCatDropdownOpen(!isEditCatDropdownOpen)} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] flex items-center justify-between hover:bg-gray-50 text-left">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-3 h-3 rounded-full ${(categories[editEventForm.category] || NOTION_PALETTES.gray).bg} border ${(categories[editEventForm.category] || NOTION_PALETTES.gray).border}`}></span>
+                          <span className="font-semibold text-xs">{editEventForm.category}</span>
+                        </div>
+                        <ChevronDown className="w-4 h-4 text-gray-400" />
+                      </button>
+                      {isEditCatDropdownOpen && (
+                        <div className="absolute left-0 right-0 top-13.5 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                          {categoryOrder.map((catName) => {
+                            const styling = categories[catName];
+                            if (!styling) return null;
+                            return (
+                              <button key={catName} type="button" onClick={() => { setEditEventForm(prev => ({ ...prev, category: catName })); setIsEditCatDropdownOpen(false); }} className="w-full px-3 py-2 text-left hover:bg-[#F7F7F5] flex items-center gap-2 border-b border-gray-50 last:border-0">
+                                <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
+                                <span className={`${styling.text} font-semibold text-xs rounded px-1.5 py-0.5 ${styling.bg}`}>{catName}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5 text-gray-400" /> 담당 교사</label><input type="text" value={editEventForm.manager} onChange={(e) => setEditEventForm(prev => ({ ...prev, manager: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarIcon className="w-3.5 h-3.5 text-rose-500" /> 시작일 *</label><input type="date" required value={editEventForm.startDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, startDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5 text-sky-500" /> 종료일</label><input type="date" value={editEventForm.endDate} onChange={(e) => setEditEventForm(prev => ({ ...prev, endDate: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 시작 시간</label><input type="time" value={editEventForm.startTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, startTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-gray-400" /> 종료 시간</label><input type="time" value={editEventForm.endTime} onChange={(e) => setEditEventForm(prev => ({ ...prev, endTime: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-gray-400" /> 장소</label><input type="text" value={editEventForm.location} onChange={(e) => setEditEventForm(prev => ({ ...prev, location: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                    <div className="flex flex-col"><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3.5 h-3.5 text-gray-400" /> 신청인원 / 대상</label><input type="text" value={editEventForm.applyCount} onChange={(e) => setEditEventForm(prev => ({ ...prev, applyCount: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  </div>
+
+                  <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Link className="w-3.5 h-3.5 text-gray-400" /> 신청방법 / 링크</label><input type="text" value={editEventForm.applyMethod} onChange={(e) => setEditEventForm(prev => ({ ...prev, applyMethod: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+                  <div><label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><FileText className="w-3.5 h-3.5 text-gray-400" /> 상세 메모</label><textarea rows={3} value={editEventForm.memo} onChange={(e) => setEditEventForm(prev => ({ ...prev, memo: e.target.value }))} className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none" /></div>
+
+                  <div className="flex gap-2 pt-3 border-t border-[#E9E9E6]">
+                    <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded-md hover:bg-gray-100 font-medium text-xs">취소</button>
+                    <button type="button" onClick={handleUpdateEvent} className="flex-1 py-2 bg-[#37352F] hover:bg-black text-white rounded-md font-medium text-xs">수정 완료</button>
+                  </div>
+                </div>
+              )
             ) : (
               <>
                 <div className="space-y-4">
@@ -1156,7 +1359,8 @@ export default function App() {
                           location: selectedEvent.location || '',
                           applyMethod: selectedEvent.applyMethod || '',
                           applyCount: selectedEvent.applyCount || '',
-                          memo: selectedEvent.memo || ''
+                          memo: selectedEvent.memo || '',
+                          colorId: selectedEvent.colorId || ''
                         });
                         setIsEditing(true);
                       }}

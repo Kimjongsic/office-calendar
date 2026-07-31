@@ -31,7 +31,7 @@ const createEmptyGrid = () => ({
   4: Array(7).fill('')
 });
 
-export default function SideAccordionPanel({
+export default React.memo(function SideAccordionPanel({
   activeSidePanel, setActiveSidePanel, selectedDate, activeDayMeal,
   messengerInput, setMessengerInput, handleAnalyzeMessengerText, isAnalyzing, parsedProposals,
   setParsedProposals, categories, categoryOrder, NOTION_PALETTES, activeProposalCatDropdownId,
@@ -880,4 +880,4 @@ export default function SideAccordionPanel({
       </div>
     </aside>
   );
-}
+});

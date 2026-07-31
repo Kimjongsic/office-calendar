@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { MessageSquare, Pin, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 
-export default function TopWidgets({
+export default React.memo(function TopWidgets({
   todayNotice, activeNoticeIdx, setActiveNoticeIdx, setNoticeFormList, setIsNoticeEditOpen,
   calculatedDdayValue, setDdayForm, setIsDdayEditOpen, currentTimeStr, currentDateStr
 }) {
@@ -121,4 +121,4 @@ export default function TopWidgets({
       </div>
     </div>
   );
-}
+});

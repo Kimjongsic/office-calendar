@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo, useLayoutEffect } from 'react';
 import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X, Calendar as CalendarIcon } from 'lucide-react';
 
-export default function CalendarBoard({
+export default React.memo(function CalendarBoard({
   year, month, handlePrevMonth, handleToday, handleNextMonth, setIsCategoryManageOpen,
   firstDayIndex, prevDaysInMonth, daysInMonth, filteredEvents, categories, NOTION_PALETTES,
   extractHexColor, selectedDate, setSelectedDate, setNewEvent, setIsAddModalOpen,
@@ -281,7 +281,7 @@ export default function CalendarBoard({
           </div>
 
           {/* 🔑 [신규] 캘린더 선택 탭 */}
-          <div className="flex items-center gap-1 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg overflow-x-auto max-w-xs scrollbar-none">
+          <div className="flex items-center gap-1 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg flex-wrap">
             {calendarList.map((cal) => (
               <div key={cal.id} className="relative group/tab shrink-0">
                 <button
@@ -565,4 +565,4 @@ export default function CalendarBoard({
 
     </section>
   );
-}
+});
