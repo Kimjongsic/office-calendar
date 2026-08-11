@@ -271,6 +271,7 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState({ status: 'idle' }); // 🔑 idle | available | downloading | downloaded | error
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isGradesDashboardOpen, setIsGradesDashboardOpen] = useState(false); // 🔑 학생 성적 대시보드 모달
+  const handleCloseGradesDashboard = useCallback(() => setIsGradesDashboardOpen(false), []); // 🔑 매초 재생성 방지
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -1545,7 +1546,7 @@ export default function App() {
       )}
 
       {/* 🔑 [신규] 학생 성적 대시보드 (전체화면 모달) */}
-      {isGradesDashboardOpen && <StudentGradesDashboard onClose={() => setIsGradesDashboardOpen(false)} />}
+      {isGradesDashboardOpen && <StudentGradesDashboard onClose={handleCloseGradesDashboard} />}
     </div>
   );
 }

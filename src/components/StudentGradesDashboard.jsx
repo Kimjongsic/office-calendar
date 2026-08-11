@@ -7,22 +7,25 @@ import {
 } from "recharts";
 import { X } from "lucide-react";
 
-const SUBJECTS = ["국어", "수학", "영어", "사회", "과학", "기타"];
+const SUBJECTS = ["국어", "수학", "영어", "사회", "과학", "기타"]; // 🔑 내신 카드 순서 (한국사는 사회에 통합되어 제거됨)
+const MOCK_SUBJECTS = ["국어", "수학", "영어", "사회", "과학", "한국사"]; // 🔑 모의고사 카드 순서 (한국사를 별도로 표시)
 const SUBJECT_COLORS = {
   "국어": "#2a78d6",
   "수학": "#eb6834",
   "영어": "#1baf7a",
   "사회": "#eda100",
+  "한국사": "#9c5de0",
   "과학": "#e87ba4",
   "기타": "#4a3aa7",
 };
-const MOCK_SESSIONS = ["25년 3월", "25년 6월", "25년 9월", "25년 10월", "26년 3월", "26년 6월"];
+// 🔑 업로드된 엑셀에 실제 존재하는 시트(회차)만 사용. 이 배열은 정렬 기준으로만 참고.
+const MOCK_SESSION_ORDER = ["25년 3월", "25년 6월", "25년 9월", "25년 10월", "26년 3월", "26년 6월", "26년 9월", "26년 10월"];
 const STORAGE_KEY = "student_grades_uploaded"; // 🔑 이 PC에만 저장 (다른 선생님과 공유 안 됨)
 
-function emptyStudent() {
+function emptyStudent(sessions) {
   const s = { school: {}, mock: {} };
-  SUBJECTS.forEach((subj) => {
-    s.mock[subj] = MOCK_SESSIONS.map(() => null);
+  MOCK_SUBJECTS.forEach((subj) => {
+    s.mock[subj] = sessions.map(() => null);
   });
   return s;
 }
@@ -38,7 +41,7 @@ function mapSubjectCategory(subjectGroup) {
   if (g === "국어") return "국어";
   if (g === "수학") return "수학";
   if (g === "영어") return "영어";
-  if (g.startsWith("사회")) return "사회";
+  if (g.startsWith("사회")) return "사회"; // 🔑 한국사도 사회로 통합 (내신은 원래대로)
   if (g === "과학") return "과학";
   return "기타";
 }
@@ -89,10 +92,26 @@ function parseNaeisRows(rows, ensure) {
 }
 
 function parseWorkbook(workbook) {
+  // 🔑 1단계: 워크북 안에서 실제로 존재하는 모의고사 회차 시트 이름을 먼저 전부 수집하고 정렬
+  const MOCK_SHEET_PATTERN = /^(\d{2})년\s*(\d{1,2})월$/;
+  const foundSessions = [];
+  workbook.SheetNames.forEach((sheetName) => {
+    const m = MOCK_SHEET_PATTERN.exec(sheetName.trim());
+    if (!m) return;
+    const sessionLabel = `${m[1]}년 ${m[2]}월`;
+    if (!foundSessions.includes(sessionLabel)) foundSessions.push(sessionLabel);
+  });
+  foundSessions.sort((a, b) => {
+    const ia = MOCK_SESSION_ORDER.indexOf(a);
+    const ib = MOCK_SESSION_ORDER.indexOf(b);
+    if (ia !== -1 && ib !== -1) return ia - ib;
+    return a.localeCompare(b); // 정의된 순서에 없는 회차는 문자열 비교로 뒤에 정렬
+  });
+
   const result = {};
   const ensure = (c, n) => {
     result[c] = result[c] || {};
-    result[c][n] = result[c][n] || emptyStudent();
+    result[c][n] = result[c][n] || emptyStudent(foundSessions);
     return result[c][n];
   };
 
@@ -101,27 +120,46 @@ function parseWorkbook(workbook) {
     parseNaeisRows(naeisRows.slice(2), ensure);
   }
 
-  const mockSheet = workbook.Sheets["모의고사"];
-  if (mockSheet) {
-    const rows = XLSX.utils.sheet_to_json(mockSheet, { defval: null });
-    rows.forEach((row) => {
-      const cls = Number(row["반"]);
-      const num = Number(row["번호"]);
-      const subjectRaw = String(row["과목"] || "").trim();
-      const subject = SUBJECTS.includes(subjectRaw) ? subjectRaw : (subjectRaw === "통합사회" ? "사회" : subjectRaw === "통합과학" ? "과학" : null);
-      const session = String(row["회차"] || "").trim();
-      if (!cls || !num || !subject) return;
-      const si = MOCK_SESSIONS.indexOf(session);
-      if (si === -1) return;
-      const student = ensure(cls, num);
-      student.mock[subject][si] = {
-        score: Number(row["표준점수"]) || 0,
-        grade: Number(row["등급"]) || 9,
-      };
-    });
-  }
+  // 🔑 2단계: 실제 회차 시트만 파싱 (헤더는 1행, 학번/반/이름 + {과목}_표점/등급 구조)
+  const MOCK_SUBJECT_HEADER_MAP = {
+    "국어": "국어", "수학": "수학", "영어": "영어",
+    "통합사회": "사회", "통합과학": "과학", // 🔑 통합사회→사회, 통합과학→과학
+    "한국사": "한국사", // 🔑 한국사는 사회와 별도의 독립 과목
+  };
 
-  return result;
+  workbook.SheetNames.forEach((sheetName) => {
+    const m = MOCK_SHEET_PATTERN.exec(sheetName.trim());
+    if (!m) return; // 이름 패턴이 안 맞으면 모의고사 시트가 아님
+
+    const sessionLabel = `${m[1]}년 ${m[2]}월`;
+    const si = foundSessions.indexOf(sessionLabel);
+    if (si === -1) return;
+
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: null }); // 1행이 헤더로 자동 사용됨
+
+    rows.forEach((row) => {
+      // 🔑 "1반"처럼 텍스트가 섞인 값도 숫자만 추출 (내신 파일의 "반" 값과 형식을 맞춤)
+      const cls = parseInt(String(row["반"] ?? "").replace(/[^0-9]/g, ""), 10);
+      const rawNum = row["학번"];
+      if (!cls || rawNum === null || rawNum === undefined) return;
+      const num = Number(String(rawNum).slice(-2)) || Number(rawNum);
+      if (!num) return;
+
+      const student = ensure(cls, num);
+      Object.entries(MOCK_SUBJECT_HEADER_MAP).forEach(([headerSubj, category]) => {
+        const gradeVal = row[`${headerSubj}_등급`];
+        if (gradeVal === null || gradeVal === undefined) return;
+        const scoreVal = row[`${headerSubj}_표점`]; // 🔑 영어/한국사는 이 열 자체가 없어서 undefined → 0으로 처리됨
+        student.mock[category][si] = {
+          score: Number(scoreVal) || 0,
+          grade: Number(gradeVal) || 9,
+        };
+      });
+    });
+  });
+
+  return { data: result, sessions: foundSessions };
 }
 
 function termSortKey(term) {
@@ -228,12 +266,19 @@ function UploadButton({ fileInputRef, handleFile }) {
   );
 }
 
-export default function StudentGradesDashboard({ onClose }) {
+function StudentGradesDashboardInner({ onClose }) {
   const [classNum, setClassNum] = useState(null);
   const [studentNum, setStudentNum] = useState(null);
   const [uploaded, setUploaded] = useState(null);
+  const [mockSessions, setMockSessions] = useState([]); // 🔑 실제 업로드된 엑셀에 존재하는 모의고사 회차만 보관
   const [uploadError, setUploadError] = useState("");
+  const [chartsReady, setChartsReady] = useState(false); // 🔑 모달이 완전히 자리잡은 뒤에만 차트를 그려서 깜빡임 방지
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setChartsReady(true), 50);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 🔑 [수정] window.storage(아티팩트 전용 API) 대신 localStorage 사용 — 이 PC에만 저장
   useEffect(() => {
@@ -241,11 +286,13 @@ export default function StudentGradesDashboard({ onClose }) {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        setUploaded(parsed);
-        const classes = Object.keys(parsed).map(Number).sort((a, b) => a - b);
+        const dataObj = parsed.data || parsed; // 🔑 이전 버전 형식(회차 정보 없음)과도 호환
+        setUploaded(dataObj);
+        setMockSessions(parsed.sessions || MOCK_SESSION_ORDER.slice(0, 6));
+        const classes = Object.keys(dataObj).map(Number).sort((a, b) => a - b);
         if (classes.length) {
           setClassNum(classes[0]);
-          const nums = Object.keys(parsed[classes[0]]).map(Number).sort((a, b) => a - b);
+          const nums = Object.keys(dataObj[classes[0]]).map(Number).sort((a, b) => a - b);
           setStudentNum(nums[0]);
         }
       }
@@ -254,9 +301,9 @@ export default function StudentGradesDashboard({ onClose }) {
     }
   }, []);
 
-  const saveToStorage = (parsed) => {
+  const saveToStorage = (parsed, sessions) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ data: parsed, sessions }));
     } catch (e) {
       setUploadError("데이터 저장에 실패했어요. 용량이 너무 클 수 있습니다.");
     }
@@ -265,6 +312,7 @@ export default function StudentGradesDashboard({ onClose }) {
   const clearStorage = () => {
     localStorage.removeItem(STORAGE_KEY);
     setUploaded(null);
+    setMockSessions([]);
     setClassNum(null);
     setStudentNum(null);
   };
@@ -277,14 +325,15 @@ export default function StudentGradesDashboard({ onClose }) {
     reader.onload = (evt) => {
       try {
         const wb = XLSX.read(evt.target.result, { type: "array" });
-        const parsed = parseWorkbook(wb);
+        const { data: parsed, sessions } = parseWorkbook(wb);
         const classes = Object.keys(parsed).map(Number).sort((a, b) => a - b);
         if (!classes.length) {
           setUploadError("인식할 수 있는 데이터가 없어요. 파일 형식을 확인해주세요.");
           return;
         }
         setUploaded(parsed);
-        saveToStorage(parsed);
+        setMockSessions(sessions);
+        saveToStorage(parsed, sessions);
         setClassNum(classes[0]);
         const nums = Object.keys(parsed[classes[0]]).map(Number).sort((a, b) => a - b);
         setStudentNum(nums[0]);
@@ -345,9 +394,9 @@ export default function StudentGradesDashboard({ onClose }) {
 
   const termAvgTrend = ALL_TERMS.map((term) => ({ term, avg: termAvgGrade(studentData, term) }));
 
-  const latestIdx = MOCK_SESSIONS.length - 1;
+  const latestIdx = mockSessions.length - 1;
   const latest = {};
-  SUBJECTS.forEach((s) => { latest[s] = studentData.mock[s][latestIdx] || { score: 0, grade: 9 }; });
+  MOCK_SUBJECTS.forEach((s) => { latest[s] = (latestIdx >= 0 ? studentData.mock[s][latestIdx] : null) || { score: 0, grade: 9 }; });
   const coreAvgGrade = Math.round(((latest["국어"].grade + latest["수학"].grade + latest["영어"].grade + latest["사회"].grade) / 4) * 10) / 10;
   const scoreSum = latest["국어"].score + latest["수학"].score + latest["영어"].score + latest["사회"].score;
   const twoAreaSum = latest["국어"].grade + latest["영어"].grade;
@@ -355,11 +404,11 @@ export default function StudentGradesDashboard({ onClose }) {
   const threeAreaSum = twoAreaSum + bestTam;
 
   const classScoreSums = classDataArray.map((s) => {
-    const l = {}; SUBJECTS.forEach((subj) => (l[subj] = (s.mock[subj][latestIdx] || { score: 0 })));
+    const l = {}; MOCK_SUBJECTS.forEach((subj) => (l[subj] = ((latestIdx >= 0 ? s.mock[subj][latestIdx] : null) || { score: 0 })));
     return l["국어"].score + l["수학"].score + l["영어"].score + l["사회"].score;
   });
   const mockRank = 1 + classScoreSums.filter((v) => v > scoreSum).length;
-  const hasMockData = SUBJECTS.some((subj) => studentData.mock[subj].some((c) => c));
+  const hasMockData = mockSessions.length > 0 && MOCK_SUBJECTS.some((subj) => studentData.mock[subj].some((c) => c));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
@@ -435,17 +484,19 @@ export default function StudentGradesDashboard({ onClose }) {
 
           <Card title="학기별 내신 등급" subtitle="전 과목 평균 등급 추이 (막대, 낮을수록 좋음)" style={{ flex: "1 1 380px" }}>
             <div style={{ height: "200px" }}>
+              {chartsReady && (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={termAvgTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#EEF0F3" vertical={false} />
                   <XAxis dataKey="term" tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={{ stroke: "#D8DBE1" }} tickLine={false} />
                   <YAxis domain={[0, 9]} tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
                   <Tooltip formatter={(v) => [`${v}등급`, "평균 등급"]} contentStyle={{ fontSize: "12px", borderRadius: "8px", border: "1px solid #E2E5EA" }} />
-                  <Bar dataKey="avg" fill="#1F3A5F" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="avg" fill="#1F3A5F" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                     <LabelList dataKey="avg" position="top" style={{ fontSize: 11, fill: "#1F3A5F", fontWeight: 700 }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </div>
           </Card>
         </div>
@@ -469,15 +520,17 @@ export default function StudentGradesDashboard({ onClose }) {
                   <p style={{ fontSize: "12px", color: "#9AA0A8", padding: "12px 0" }}>데이터 없음</p>
                 ) : (
                   <div style={{ height: `${rows.length * 34 + 20}px` }}>
+                    {chartsReady && (
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 44, left: 0, bottom: 4 }}>
                         <XAxis type="number" domain={[0, 9]} hide />
                         <YAxis type="category" dataKey="term" width={90} tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-                        <Bar dataKey="barVal" fill={SUBJECT_COLORS[subj]} radius={[0, 4, 4, 0]} barSize={14}>
+                        <Bar dataKey="barVal" fill={SUBJECT_COLORS[subj]} radius={[0, 4, 4, 0]} barSize={14} isAnimationActive={false}>
                           <LabelList dataKey="grade" position="right" formatter={(v) => `${v}등급`} style={{ fontSize: 11, fill: "#1F3A5F", fontWeight: 700 }} />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
+                    )}
                   </div>
                 )}
               </div>
@@ -516,9 +569,9 @@ export default function StudentGradesDashboard({ onClose }) {
           </div>
         </Card>
 
-        <Card title="최신 모의고사 성적" subtitle={`${MOCK_SESSIONS[latestIdx]} 기준`}>
+        <Card title="최신 모의고사 성적" subtitle={mockSessions.length ? `${mockSessions[latestIdx]} 기준` : ""}>
           {!hasMockData ? (
-            <p style={{ fontSize: "12px", color: "#9AA0A8" }}>모의고사 데이터가 없어요. ('모의고사' 시트를 함께 업로드하면 표시돼요)</p>
+            <p style={{ fontSize: "12px", color: "#9AA0A8" }}>모의고사 데이터가 없어요. (시트 이름을 "26년 3월"처럼 지어서 함께 업로드하면 표시돼요)</p>
           ) : (
             <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
               <StatBox label="국영수탐 평균" value={`${coreAvgGrade}등급`} accent="#1F3A5F" />
@@ -531,12 +584,13 @@ export default function StudentGradesDashboard({ onClose }) {
         </Card>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "16px" }}>
-          {SUBJECTS.map((subj) => {
-            const rows = MOCK_SESSIONS.map((session, si) => {
+          {MOCK_SUBJECTS.map((subj) => {
+            const rows = mockSessions.map((session, si) => {
               const cell = studentData.mock[subj][si];
               return { session, score: cell ? cell.score : null, grade: cell ? cell.grade : null };
             });
             const hasAny = rows.some((r) => r.score !== null);
+            const maxScore = (subj === "국어" || subj === "수학") ? 150 : (subj === "사회" || subj === "과학") ? 80 : 150; // 🔑 과목별 표점 최고점 (국/수: 150, 사/과: 80)
             return (
               <div key={subj} style={{ background: "#FFFFFF", border: "1px solid #E2E5EA", borderRadius: "12px", padding: "14px 16px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
@@ -547,20 +601,22 @@ export default function StudentGradesDashboard({ onClose }) {
                   <p style={{ fontSize: "12px", color: "#9AA0A8", padding: "12px 0" }}>데이터 없음</p>
                 ) : (
                   <div style={{ height: "170px" }}>
+                    {chartsReady && (
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart data={rows} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
                         <XAxis dataKey="session" tick={{ fontSize: 10, fill: "#9AA0A8" }} axisLine={{ stroke: "#E2E5EA" }} tickLine={false} />
-                        <YAxis yAxisId="score" domain={[60, 150]} hide />
-                        <YAxis yAxisId="grade" orientation="right" domain={[9, 1]} hide />
+                        <YAxis yAxisId="score" domain={[0, maxScore]} hide />
+                        <YAxis yAxisId="grade" orientation="right" domain={[1, 9]} reversed hide />
                         <Tooltip contentStyle={{ fontSize: "12px", borderRadius: "8px", border: "1px solid #E2E5EA" }} />
-                        <Bar yAxisId="score" dataKey="score" fill={`${SUBJECT_COLORS[subj]}55`} radius={[3, 3, 0, 0]} barSize={16} name="표준점수">
+                        <Bar yAxisId="score" dataKey="score" fill={`${SUBJECT_COLORS[subj]}55`} radius={[3, 3, 0, 0]} barSize={16} name="표준점수" isAnimationActive={false}>
                           <LabelList dataKey="score" position="top" style={{ fontSize: 10, fill: "#9AA0A8" }} />
                         </Bar>
-                        <Line yAxisId="grade" type="monotone" dataKey="grade" stroke={SUBJECT_COLORS[subj]} strokeWidth={2} dot={{ r: 3, fill: SUBJECT_COLORS[subj] }} name="등급" connectNulls>
+                        <Line yAxisId="grade" type="monotone" dataKey="grade" stroke={SUBJECT_COLORS[subj]} strokeWidth={2} dot={{ r: 3, fill: SUBJECT_COLORS[subj] }} name="등급" connectNulls isAnimationActive={false}>
                           <LabelList dataKey="grade" position="bottom" formatter={(v) => (v ? `${v}등급` : "")} style={{ fontSize: 10, fill: SUBJECT_COLORS[subj], fontWeight: 700 }} />
                         </Line>
                       </ComposedChart>
                     </ResponsiveContainer>
+                    )}
                   </div>
                 )}
               </div>
@@ -575,3 +631,5 @@ export default function StudentGradesDashboard({ onClose }) {
     </div>
   );
 }
+
+export default React.memo(StudentGradesDashboardInner);
