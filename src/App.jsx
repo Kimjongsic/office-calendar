@@ -37,13 +37,15 @@ import {
   Eye,
   Utensils,
   Bookmark,
-  Wallet
+  Wallet,
+  BarChart3
 } from 'lucide-react';
 
 import DashboardHeader from './components/DashboardHeader';
 import TopWidgets from './components/TopWidgets';
 import CalendarBoard from './components/CalendarBoard';
 import SideAccordionPanel from './components/SideAccordionPanel';
+import StudentGradesDashboard from './components/StudentGradesDashboard';
 
 const NOTION_PALETTES = {
   red: { bg: 'bg-[#FFE2DD]', text: 'text-[#5D0F00]', border: 'border-[#FFE2DD]', color: '#FFE2DD', label: '연한 빨강' },
@@ -268,6 +270,7 @@ export default function App() {
   const [appVersion, setAppVersion] = useState('');
   const [updateInfo, setUpdateInfo] = useState({ status: 'idle' }); // 🔑 idle | available | downloading | downloaded | error
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isGradesDashboardOpen, setIsGradesDashboardOpen] = useState(false); // 🔑 학생 성적 대시보드 모달
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -1003,6 +1006,7 @@ export default function App() {
           <button type="button" onClick={() => toggleSidePanel('ai')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'ai' ? 'bg-purple-50 border-purple-200 text-purple-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Sparkles className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'bookmark' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'salary' ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
+          <button type="button" onClick={() => setIsGradesDashboardOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isGradesDashboardOpen ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="학생 성적 대시보드"><BarChart3 className="w-5 h-5" /></button>
         </div>
       </div>
 
@@ -1539,6 +1543,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 🔑 [신규] 학생 성적 대시보드 (전체화면 모달) */}
+      {isGradesDashboardOpen && <StudentGradesDashboard onClose={() => setIsGradesDashboardOpen(false)} />}
     </div>
   );
 }
