@@ -100,15 +100,18 @@ ipcMain.handle('save-page-as-pdf', async (event, defaultFileName, contentSizePx)
     });
     if (canceled || !filePath) return { success: false };
 
-    // 🔑 콘텐츠 실제 크기(px)를 마이크론 단위로 변환해서, 스크롤/페이지 분할 없이 한 페이지에 다 담음
-    // (Chromium 인쇄 API는 CSS px 기준 96dpi를 가정: 1px = 1/96 inch = 25400/96 마이크론)
-    const PX_TO_MICRON = 25400 / 96;
+    // 🔑 콘텐츠 실제 크기(px)를 인치 단위로 변환해서, 스크롤/페이지 분할 없이 한 페이지에 다 담음
+    // Chromium printToPDF의 pageSize는 인치(inch) 단위를 기대하며, 너무 큰 값은 실패하므로 200인치로 제한
+    const PX_TO_INCH = 1 / 96;
+    const MAX_INCH = 200;
     const pageSize = contentSizePx
       ? {
-          width: Math.ceil(contentSizePx.width * PX_TO_MICRON),
-          height: Math.ceil(contentSizePx.height * PX_TO_MICRON),
+          width: Math.min(Math.max(contentSizePx.width * PX_TO_INCH, 1), MAX_INCH),
+          height: Math.min(Math.max(contentSizePx.height * PX_TO_INCH, 1), MAX_INCH),
         }
       : 'A4';
+
+    console.log('PDF 페이지 크기(inch):', pageSize); // 🔑 [임시 디버깅용]
 
     const pdfBuffer = await win.webContents.printToPDF({
       printBackground: true,

@@ -392,6 +392,7 @@ function StudentGradesDashboardInner({ onClose }) {
   const [isSavingPdf, setIsSavingPdf] = useState(false);
 
   const handlePrintPdf = async () => {
+    console.log('PDF 저장 시작 - 코드 버전 확인용 로그'); // 🔑 [임시 디버깅용]
     if (!window.electronAPI?.savePageAsPdf) {
       setUploadError("이 버전에서는 PDF 저장을 사용할 수 없어요. 앱을 최신 버전으로 업데이트해주세요.");
       return;
@@ -428,12 +429,31 @@ function StudentGradesDashboardInner({ onClose }) {
       node = parent;
     }
 
+    // 🔑 측정 시점과 실제 인쇄 시점의 레이아웃이 달라 높이가 부정확했던 문제 해결:
+    // @media print가 적용할 것과 동일한 스타일을 미리 JS로 직접 적용한 뒤, 그 상태에서 정확히 측정
+    const printArea = document.getElementById('grades-print-area');
+    const prevOverlayStyle = { position: overlay.style.position, display: overlay.style.display, overflow: overlay.style.overflow, height: overlay.style.height, padding: overlay.style.padding };
+    const prevAreaStyle = printArea ? { margin: printArea.style.margin, boxShadow: printArea.style.boxShadow } : null;
+
+    overlay.style.position = 'static';
+    overlay.style.display = 'block';
+    overlay.style.overflow = 'visible';
+    overlay.style.height = 'auto';
+    overlay.style.padding = '0';
+    if (printArea) {
+      printArea.style.margin = '0 auto';
+      printArea.style.boxShadow = 'none';
+      void printArea.offsetHeight; // 🔑 강제로 리플로우시켜 아래 측정값이 최신 레이아웃을 반영하도록 함
+    }
+
     try {
-      const printArea = document.getElementById('grades-print-area');
-      // 🔑 모달의 실제 전체 너비/높이(스크롤로 가려졌던 부분 포함)를 측정해서 페이지 크기로 사용
+      // 🔑 인쇄 때와 동일한 레이아웃 상태에서 측정한 실제 전체 너비/높이
+      // + 폰트 로딩/렌더링 타이밍 차이로 인한 미세한 오차에 대비해 여유분을 더함
+      const PDF_HEIGHT_BUFFER_PX = 120;
       const contentSizePx = printArea
-        ? { width: printArea.offsetWidth, height: printArea.scrollHeight }
+        ? { width: printArea.offsetWidth, height: printArea.scrollHeight + PDF_HEIGHT_BUFFER_PX }
         : null;
+      console.log('측정된 contentSizePx:', contentSizePx); // 🔑 [임시 디버깅용]
 
       const namePart = studentData?.name ? `_${studentData.name}` : '';
       const fileName = `${classNum}반_${effectiveStudentNum}번${namePart}_성적분석.pdf`;
@@ -448,6 +468,16 @@ function StudentGradesDashboardInner({ onClose }) {
       if (buttonsEl) buttonsEl.style.display = prevButtonsDisplay;
       overlay.style.background = prevBg;
       overlay.style.backdropFilter = prevBackdrop;
+      // 🔑 측정을 위해 임시로 바꿨던 레이아웃 스타일 복원
+      overlay.style.position = prevOverlayStyle.position;
+      overlay.style.display = prevOverlayStyle.display;
+      overlay.style.overflow = prevOverlayStyle.overflow;
+      overlay.style.height = prevOverlayStyle.height;
+      overlay.style.padding = prevOverlayStyle.padding;
+      if (printArea && prevAreaStyle) {
+        printArea.style.margin = prevAreaStyle.margin;
+        printArea.style.boxShadow = prevAreaStyle.boxShadow;
+      }
       setIsSavingPdf(false);
     }
   };
@@ -609,7 +639,6 @@ function StudentGradesDashboardInner({ onClose }) {
           }
           #grades-print-area {
             margin: 0 auto !important;
-            max-width: 100% !important;
             box-shadow: none !important;
           }
           * { break-inside: avoid-page !important; } /* 🔑 페이지 크기를 콘텐츠에 맞추므로 페이지 분할 자체가 없음 */
