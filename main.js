@@ -89,6 +89,31 @@ ipcMain.on('set-opacity', (event, value) => {
 ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
 ipcMain.handle('get-app-version', () => app.getVersion());
 
+// 🔑 [신규] 지금 화면(렌더러)을 그대로 PDF로 저장 — Chromium 실제 렌더러 사용이라 oklch 등 모든 CSS를 정상 처리함
+ipcMain.handle('save-page-as-pdf', async (event, defaultFileName) => {
+  if (!win) return { success: false };
+  try {
+    const { filePath, canceled } = await dialog.showSaveDialog(win, {
+      title: 'PDF로 저장',
+      defaultPath: defaultFileName || '성적분석.pdf',
+      filters: [{ name: 'PDF 파일', extensions: ['pdf'] }],
+    });
+    if (canceled || !filePath) return { success: false };
+
+    const pdfBuffer = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      margins: { marginType: 'default' },
+    });
+
+    require('fs').writeFileSync(filePath, pdfBuffer);
+    return { success: true, filePath };
+  } catch (err) {
+    console.error('PDF 저장 실패:', err);
+    return { success: false, error: err.message };
+  }
+});
+
 // 🔑 구글 계정 연결 시작: 시스템 브라우저로 로그인 창을 열고, 로컬 서버로 인증 코드를 받음
 ipcMain.handle('google-connect', () => {
   return new Promise((resolve, reject) => {

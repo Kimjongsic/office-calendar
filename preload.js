@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   startUpdateDownload: () => ipcRenderer.send('start-update-download'),
   quitAndInstallUpdate: () => ipcRenderer.send('quit-and-install-update'),
+  savePageAsPdf: (defaultFileName) => ipcRenderer.invoke('save-page-as-pdf', defaultFileName),
   googleConnect: () => ipcRenderer.invoke('google-connect'),
   googleGetAccount: () => ipcRenderer.invoke('google-get-account'),
   googleDisconnect: () => ipcRenderer.invoke('google-disconnect'),

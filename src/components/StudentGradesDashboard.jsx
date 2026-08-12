@@ -23,7 +23,7 @@ const MOCK_SESSION_ORDER = ["25년 3월", "25년 6월", "25년 9월", "25년 10�
 const STORAGE_KEY = "student_grades_uploaded"; // 🔑 이 PC에만 저장 (다른 선생님과 공유 안 됨)
 
 function emptyStudent(sessions) {
-  const s = { school: {}, mock: {} };
+  const s = { school: {}, mock: {}, name: "" }; // 🔑 모의고사 시트의 "이름" 열에서 채워짐
   MOCK_SUBJECTS.forEach((subj) => {
     s.mock[subj] = sessions.map(() => null);
   });
@@ -91,6 +91,28 @@ function parseNaeisRows(rows, ensure) {
   });
 }
 
+// 🔑 localStorage에서 불러온 데이터가 지금 코드 형식과 맞는지 검사
+// (구버전 데이터는 mock 배열 길이가 sessions 길이와 다르거나, mock에 필요한 과목 키가 없을 수 있음)
+function isCompatibleStoredData(dataObj, sessions) {
+  if (!dataObj || typeof dataObj !== "object") return false;
+  const classKeys = Object.keys(dataObj);
+  if (!classKeys.length) return false;
+
+  for (const cls of classKeys) {
+    const studentKeys = Object.keys(dataObj[cls] || {});
+    for (const num of studentKeys) {
+      const student = dataObj[cls][num];
+      if (!student || !student.mock) return false;
+      for (const subj of MOCK_SUBJECTS) {
+        const arr = student.mock[subj];
+        if (!Array.isArray(arr) || arr.length !== sessions.length) return false;
+      }
+      return true; // 학생 1명만 확인해도 형식 판단에 충분
+    }
+  }
+  return true; // 학생 데이터가 아예 없으면(내신만 있는 경우 등) 호환으로 간주
+}
+
 function parseWorkbook(workbook) {
   // 🔑 1단계: 워크북 안에서 실제로 존재하는 모의고사 회차 시트 이름을 먼저 전부 수집하고 정렬
   const MOCK_SHEET_PATTERN = /^(\d{2})년\s*(\d{1,2})월$/;
@@ -147,6 +169,11 @@ function parseWorkbook(workbook) {
       if (!num) return;
 
       const student = ensure(cls, num);
+      // 🔑 모의고사 시트의 "이름" 열을 학생 이름으로 사용
+      if (row["이름"] !== null && row["이름"] !== undefined && String(row["이름"]).trim()) {
+        student.name = String(row["이름"]).trim();
+      }
+
       Object.entries(MOCK_SUBJECT_HEADER_MAP).forEach(([headerSubj, category]) => {
         const gradeVal = row[`${headerSubj}_등급`];
         if (gradeVal === null || gradeVal === undefined) return;
@@ -252,6 +279,38 @@ function StatBox({ label, value, accent }) {
   );
 }
 
+// 🔑 [신규] 영역합 카드: 왼쪽 칸은 제목(1):합계(3) 세로 비율, 오른쪽은 과목별 목록 (행 간격 균등)
+function AreaSumCard({ title, total, items, accent }) {
+  return (
+    <div style={{ display: "flex", border: "1px solid #E2E5EA", borderRadius: "10px", overflow: "hidden", minWidth: "210px", height: "132px", flex: "1 1 210px" }}>
+      <div style={{
+        background: `${accent}18`, color: accent,
+        display: "flex", flexDirection: "column",
+        minWidth: "84px", textAlign: "center",
+      }}>
+        <div style={{ flex: "1", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "12.5px", padding: "4px 10px" }}>
+          {title}
+        </div>
+        <div style={{ flex: "3", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "20px" }}>
+          {total}
+        </div>
+      </div>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {items.map((it, i) => (
+          <div key={i} style={{
+            flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px",
+            fontSize: "12px", color: "#374151", background: i % 2 === 0 ? "#F5F6F8" : "#FFFFFF",
+          }}>
+            <span>{it.label}</span>
+            <span style={{ fontWeight: 700 }}>{it.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 function UploadButton({ fileInputRef, handleFile }) {
   return (
     <div>
@@ -271,7 +330,9 @@ function StudentGradesDashboardInner({ onClose }) {
   const [studentNum, setStudentNum] = useState(null);
   const [uploaded, setUploaded] = useState(null);
   const [mockSessions, setMockSessions] = useState([]); // 🔑 실제 업로드된 엑셀에 존재하는 모의고사 회차만 보관
+  const [simIdx, setSimIdx] = useState(Infinity); // 🔑 선택된 모의고사 회차 인덱스 (기본값: 항상 최신 회차로 클램프됨)
   const [uploadError, setUploadError] = useState("");
+  const [isIncompatible, setIsIncompatible] = useState(false); // 🔑 저장된 데이터가 예전 버전 형식이라 못 불러올 때
   const [chartsReady, setChartsReady] = useState(false); // 🔑 모달이 완전히 자리잡은 뒤에만 차트를 그려서 깜빡임 방지
   const fileInputRef = useRef(null);
 
@@ -286,9 +347,17 @@ function StudentGradesDashboardInner({ onClose }) {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        const dataObj = parsed.data || parsed; // 🔑 이전 버전 형식(회차 정보 없음)과도 호환
+        const dataObj = parsed.data || parsed;
+        const sessions = parsed.sessions || [];
+
+        // 🔑 예전 버전 형식이면 화면에 반영하지 않고, "삭제 필요" 상태로만 표시
+        if (!isCompatibleStoredData(dataObj, sessions)) {
+          setIsIncompatible(true);
+          return;
+        }
+
         setUploaded(dataObj);
-        setMockSessions(parsed.sessions || MOCK_SESSION_ORDER.slice(0, 6));
+        setMockSessions(sessions);
         const classes = Object.keys(dataObj).map(Number).sort((a, b) => a - b);
         if (classes.length) {
           setClassNum(classes[0]);
@@ -297,7 +366,7 @@ function StudentGradesDashboardInner({ onClose }) {
         }
       }
     } catch (e) {
-      // 저장된 데이터가 없거나 손상된 경우 무시
+      setIsIncompatible(true); // 🔑 파싱 자체가 깨진 경우도 동일하게 처리
     }
   }, []);
 
@@ -315,6 +384,66 @@ function StudentGradesDashboardInner({ onClose }) {
     setMockSessions([]);
     setClassNum(null);
     setStudentNum(null);
+    setIsIncompatible(false);
+  };
+
+  // 🔑 [신규] Electron의 실제 렌더러로 인쇄 → PDF 생성 (oklch 등 최신 CSS도 100% 정상 처리됨)
+  // 모달 외 나머지 화면(캘린더 등)을 전부 잠깐 숨겨서, 결과적으로 모달만 캡처된 것과 동일한 효과를 냄
+  const [isSavingPdf, setIsSavingPdf] = useState(false);
+
+  const handlePrintPdf = async () => {
+    if (!window.electronAPI?.savePageAsPdf) {
+      setUploadError("이 버전에서는 PDF 저장을 사용할 수 없어요. 앱을 최신 버전으로 업데이트해주세요.");
+      return;
+    }
+    const overlay = document.getElementById('grades-modal-overlay');
+    if (!overlay) return;
+
+    setIsSavingPdf(true);
+
+    // 🔑 배경(반투명 검은 오버레이)을 인쇄용으로 흰 배경으로 임시 교체
+    const prevBg = overlay.style.background;
+    const prevBackdrop = overlay.style.backdropFilter;
+    overlay.style.background = '#F5F6F8';
+    overlay.style.backdropFilter = 'none';
+
+    // 🔑 3개 버튼(PDF저장/엑셀업로드/데이터삭제) 임시로 숨김
+    const buttonsEl = overlay.querySelector('.no-capture');
+    const prevButtonsDisplay = buttonsEl ? buttonsEl.style.display : null;
+    if (buttonsEl) buttonsEl.style.display = 'none';
+
+    // 🔑 모달을 제외한 나머지 화면(캘린더, 헤더 등)을 전부 숨김
+    const hidden = [];
+    let node = overlay;
+    while (node && node !== document.body) {
+      const parent = node.parentElement;
+      if (parent) {
+        Array.from(parent.children).forEach((sibling) => {
+          if (sibling !== node && sibling.style.display !== 'none') {
+            hidden.push({ el: sibling, prev: sibling.style.display });
+            sibling.style.display = 'none';
+          }
+        });
+      }
+      node = parent;
+    }
+
+    try {
+      const namePart = studentData?.name ? `_${studentData.name}` : '';
+      const fileName = `${classNum}반_${effectiveStudentNum}번${namePart}_성적분석.pdf`;
+      const result = await window.electronAPI.savePageAsPdf(fileName);
+      if (result && !result.success && result.error) {
+        setUploadError("PDF 저장 중 문제가 발생했어요.");
+      }
+    } catch (err) {
+      setUploadError("PDF 저장 중 문제가 발생했어요.");
+    } finally {
+      hidden.forEach(({ el, prev }) => { el.style.display = prev; });
+      if (buttonsEl) buttonsEl.style.display = prevButtonsDisplay;
+      overlay.style.background = prevBg;
+      overlay.style.backdropFilter = prevBackdrop;
+      setIsSavingPdf(false);
+    }
   };
 
   const handleFile = (e) => {
@@ -333,6 +462,7 @@ function StudentGradesDashboardInner({ onClose }) {
         }
         setUploaded(parsed);
         setMockSessions(sessions);
+        setSimIdx(Infinity); // 🔑 새로 업로드하면 다시 최신 회차로 초기화
         saveToStorage(parsed, sessions);
         setClassNum(classes[0]);
         const nums = Object.keys(parsed[classes[0]]).map(Number).sort((a, b) => a - b);
@@ -353,6 +483,27 @@ function StudentGradesDashboardInner({ onClose }) {
       <X className="w-5 h-5" />
     </button>
   );
+
+  if (isIncompatible) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={onClose}>
+        <div className="relative bg-[#F5F6F8] rounded-xl shadow-2xl w-full max-w-md p-8" onClick={(e) => e.stopPropagation()}>
+          <CloseButton />
+          <div style={{ textAlign: "center" }}>
+            <h1 style={{ fontSize: "19px", fontWeight: 800, color: "#1F3A5F", margin: "0 0 8px" }}>
+              데이터 형식이 맞지 않아요
+            </h1>
+            <p style={{ fontSize: "13px", color: "#6B7280", margin: "0 0 20px" }}>
+              이 컴퓨터에 저장된 성적 데이터가 예전 버전 형식이라 불러올 수 없어요.<br />아래 버튼으로 초기화한 뒤 엑셀 파일을 다시 업로드해주세요.
+            </p>
+            <button onClick={clearStorage} style={{ ...btnStyle, background: "#791F1F", color: "#fff", border: "1px solid #791F1F" }}>
+              저장된 데이터 삭제
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!uploaded || classNum === null) {
     return (
@@ -382,37 +533,61 @@ function StudentGradesDashboardInner({ onClose }) {
   const studentNumbers = Object.keys(uploadedClassMap).map(Number).sort((a, b) => a - b);
   const effectiveStudentNum = studentNumbers.includes(studentNum) ? studentNum : studentNumbers[0];
   const studentData = uploadedClassMap[effectiveStudentNum];
-  const classDataArray = studentNumbers.map((n) => uploadedClassMap[n]);
   const size = studentNumbers.length;
   const classNumbers = Object.keys(uploaded).map(Number).sort((a, b) => a - b);
   const ALL_TERMS = collectTerms(uploaded);
 
   const overallAvg = schoolAvgGrade(studentData);
-  const classAverages = classDataArray.map(schoolAvgGrade);
-  const schoolRank = 1 + classAverages.filter((v) => v < overallAvg).length;
   const subjectAverages = SUBJECTS.map((subj) => ({ subject: subj, avg: subjectAvgGrade(studentData, subj) }));
 
   const termAvgTrend = ALL_TERMS.map((term) => ({ term, avg: termAvgGrade(studentData, term) }));
 
-  const latestIdx = mockSessions.length - 1;
-  const latest = {};
-  MOCK_SUBJECTS.forEach((s) => { latest[s] = (latestIdx >= 0 ? studentData.mock[s][latestIdx] : null) || { score: 0, grade: 9 }; });
-  const coreAvgGrade = Math.round(((latest["국어"].grade + latest["수학"].grade + latest["영어"].grade + latest["사회"].grade) / 4) * 10) / 10;
-  const scoreSum = latest["국어"].score + latest["수학"].score + latest["영어"].score + latest["사회"].score;
-  const twoAreaSum = latest["국어"].grade + latest["영어"].grade;
-  const bestTam = Math.min(latest["사회"].grade, latest["과학"].grade);
-  const threeAreaSum = twoAreaSum + bestTam;
-
-  const classScoreSums = classDataArray.map((s) => {
-    const l = {}; MOCK_SUBJECTS.forEach((subj) => (l[subj] = ((latestIdx >= 0 ? s.mock[subj][latestIdx] : null) || { score: 0 })));
-    return l["국어"].score + l["수학"].score + l["영어"].score + l["사회"].score;
-  });
-  const mockRank = 1 + classScoreSums.filter((v) => v > scoreSum).length;
   const hasMockData = mockSessions.length > 0 && MOCK_SUBJECTS.some((subj) => studentData.mock[subj].some((c) => c));
 
+  // 🔑 선택된 모의고사 회차 인덱스 (범위를 벗어나면 자동으로 최신 회차로 클램프)
+  const effectiveSimIdx = mockSessions.length ? Math.min(simIdx, mockSessions.length - 1) : 0;
+  const mockCell = (subj) => (mockSessions.length && studentData.mock[subj][effectiveSimIdx]) || { score: 0, grade: 9 };
+  const sessionHasData = mockSessions.length > 0 && MOCK_SUBJECTS.some((subj) => studentData.mock[subj][effectiveSimIdx]);
+
+  const korCell = mockCell("국어");
+  const mathCell = mockCell("수학");
+  const engCell = mockCell("영어");
+  const socCell = mockCell("사회");
+  const sciCell = mockCell("과학");
+
+  // 🔑 표점합: 국어, 수학, 사회, 과학 표점의 합계
+  const scoreSum = korCell.score + mathCell.score + socCell.score + sciCell.score;
+  const scoreItems = [
+    { label: "국어", value: korCell.score },
+    { label: "수학", value: mathCell.score },
+    { label: "사회", value: socCell.score },
+    { label: "과학", value: sciCell.score },
+  ];
+
+  // 🔑 사회/과학 중 등급이 더 높은(숫자가 작은) 과목 하나를 대표로 선택
+  const tamLabel = socCell.grade <= sciCell.grade ? "사회" : "과학";
+  const tamGrade = Math.min(socCell.grade, sciCell.grade);
+  const candidates = [
+    { label: "국어", grade: korCell.grade },
+    { label: "영어", grade: engCell.grade },
+    { label: "수학", grade: mathCell.grade },
+    { label: tamLabel, grade: tamGrade },
+  ];
+  const sortedCandidates = [...candidates].sort((a, b) => a.grade - b.grade);
+  const top2 = sortedCandidates.slice(0, 2);
+  const top3 = sortedCandidates.slice(0, 3);
+  const twoAreaSum = top2.reduce((a, c) => a + c.grade, 0);
+  const threeAreaSum = top3.reduce((a, c) => a + c.grade, 0);
+  const fourAreaSum = candidates.reduce((a, c) => a + c.grade, 0);
+
+  const top2Items = top2.map((c) => ({ label: c.label, value: c.grade }));
+  const top3Items = top3.map((c) => ({ label: c.label, value: c.grade }));
+  const fourItems = candidates.map((c) => ({ label: c.label, value: c.grade }));
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
+    <div id="grades-modal-overlay" className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
       <div
+        id="grades-print-area"
         className="relative bg-[#F5F6F8] rounded-xl shadow-2xl w-full max-w-6xl my-4"
         style={{ fontFamily: "-apple-system, 'Malgun Gothic', sans-serif", padding: "28px 24px" }}
         onClick={(e) => e.stopPropagation()}
@@ -422,13 +597,16 @@ function StudentGradesDashboardInner({ onClose }) {
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px", flexWrap: "wrap", gap: "12px", paddingRight: "48px" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: "22px", fontWeight: 800, color: "#1F3A5F", letterSpacing: "-0.02em" }}>
-              {classNum}반 {effectiveStudentNum}번 종합성적분석
+              {classNum}반 {effectiveStudentNum}번{studentData.name ? ` ${studentData.name}` : ""} 종합성적분석
             </h1>
             <p style={{ margin: "5px 0 0", fontSize: "13px", color: "#6B7280" }}>
               업로드된 데이터 사용 중 · {classNum}반 {size}명
             </p>
           </div>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+          <div className="no-capture" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            <button onClick={handlePrintPdf} disabled={isSavingPdf} style={{ ...btnStyle, background: "#2a78d6", color: "#fff", border: "1px solid #2a78d6" }}>
+              {isSavingPdf ? '저장 중...' : 'PDF로 저장'}
+            </button>
             <UploadButton fileInputRef={fileInputRef} handleFile={handleFile} />
             <button onClick={() => { clearStorage(); setUploadError(""); }} style={btnStyle}>
               저장된 데이터 삭제
@@ -478,7 +656,6 @@ function StudentGradesDashboardInner({ onClose }) {
             </table>
             <div style={{ display: "flex", gap: "10px" }}>
               <StatBox label="전체내신등급평균" value={overallAvg.toFixed(2)} accent="#1F3A5F" />
-              <StatBox label="반 석차" value={`${schoolRank} / ${size}`} accent="#4a3aa7" />
             </div>
           </Card>
 
@@ -569,16 +746,29 @@ function StudentGradesDashboardInner({ onClose }) {
           </div>
         </Card>
 
-        <Card title="최신 모의고사 성적" subtitle={mockSessions.length ? `${mockSessions[latestIdx]} 기준` : ""}>
+        <Card
+          title="모의고사 성적 요약"
+          subtitle={mockSessions.length ? "회차를 선택해 성적을 확인하세요" : ""}
+          right={
+            mockSessions.length > 0 && (
+              <select value={effectiveSimIdx} onChange={(e) => setSimIdx(Number(e.target.value))} style={selectStyle}>
+                {mockSessions.map((s, i) => (
+                  <option key={s} value={i}>{s}</option>
+                ))}
+              </select>
+            )
+          }
+        >
           {!hasMockData ? (
             <p style={{ fontSize: "12px", color: "#9AA0A8" }}>모의고사 데이터가 없어요. (시트 이름을 "26년 3월"처럼 지어서 함께 업로드하면 표시돼요)</p>
+          ) : !sessionHasData ? (
+            <p style={{ fontSize: "12px", color: "#9AA0A8" }}>선택한 회차({mockSessions[effectiveSimIdx]})의 성적 데이터가 없어요.</p>
           ) : (
             <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-              <StatBox label="국영수탐 평균" value={`${coreAvgGrade}등급`} accent="#1F3A5F" />
-              <StatBox label="표점합" value={scoreSum} accent="#2a78d6" />
-              <StatBox label="2개영역합" value={`${twoAreaSum}등급`} accent="#eda100" />
-              <StatBox label="3개영역합" value={`${threeAreaSum}등급`} accent="#e87ba4" />
-              <StatBox label="반 석차" value={`${mockRank} / ${size}`} accent="#4a3aa7" />
+              <AreaSumCard title="표점합" total={scoreSum} items={scoreItems} accent="#2a78d6" />
+              <AreaSumCard title="2개 영역합" total={twoAreaSum} items={top2Items} accent="#1baf7a" />
+              <AreaSumCard title="3개 영역합" total={threeAreaSum} items={top3Items} accent="#8b5cf6" />
+              <AreaSumCard title="4개 영역합" total={fourAreaSum} items={fourItems} accent="#eb6834" />
             </div>
           )}
         </Card>
