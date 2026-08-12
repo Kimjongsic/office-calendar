@@ -429,9 +429,15 @@ function StudentGradesDashboardInner({ onClose }) {
     }
 
     try {
+      const printArea = document.getElementById('grades-print-area');
+      // 🔑 모달의 실제 전체 너비/높이(스크롤로 가려졌던 부분 포함)를 측정해서 페이지 크기로 사용
+      const contentSizePx = printArea
+        ? { width: printArea.offsetWidth, height: printArea.scrollHeight }
+        : null;
+
       const namePart = studentData?.name ? `_${studentData.name}` : '';
       const fileName = `${classNum}반_${effectiveStudentNum}번${namePart}_성적분석.pdf`;
-      const result = await window.electronAPI.savePageAsPdf(fileName);
+      const result = await window.electronAPI.savePageAsPdf(fileName, contentSizePx);
       if (result && !result.success && result.error) {
         setUploadError("PDF 저장 중 문제가 발생했어요.");
       }
@@ -586,6 +592,29 @@ function StudentGradesDashboardInner({ onClose }) {
 
   return (
     <div id="grades-modal-overlay" className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
+      {/* 🔑 인쇄(PDF 저장) 시에만 적용: 모달의 fixed+overflow-auto(뷰포트처럼 동작)를 일반 문서 흐름으로 바꿔서
+          스크롤해야 보이던 아래쪽 내용까지 전부 여러 페이지에 걸쳐 정상적으로 인쇄되도록 함 */}
+      <style>{`
+        @media print {
+          html, body { height: auto !important; overflow: visible !important; }
+          #grades-modal-overlay {
+            position: static !important;
+            inset: auto !important;
+            display: block !important;
+            overflow: visible !important;
+            height: auto !important;
+            padding: 0 !important;
+            background: #F5F6F8 !important;
+            backdrop-filter: none !important;
+          }
+          #grades-print-area {
+            margin: 0 auto !important;
+            max-width: 100% !important;
+            box-shadow: none !important;
+          }
+          * { break-inside: avoid-page !important; } /* 🔑 페이지 크기를 콘텐츠에 맞추므로 페이지 분할 자체가 없음 */
+        }
+      `}</style>
       <div
         id="grades-print-area"
         className="relative bg-[#F5F6F8] rounded-xl shadow-2xl w-full max-w-6xl my-4"

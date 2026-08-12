@@ -90,7 +90,7 @@ ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
 ipcMain.handle('get-app-version', () => app.getVersion());
 
 // 🔑 [신규] 지금 화면(렌더러)을 그대로 PDF로 저장 — Chromium 실제 렌더러 사용이라 oklch 등 모든 CSS를 정상 처리함
-ipcMain.handle('save-page-as-pdf', async (event, defaultFileName) => {
+ipcMain.handle('save-page-as-pdf', async (event, defaultFileName, contentSizePx) => {
   if (!win) return { success: false };
   try {
     const { filePath, canceled } = await dialog.showSaveDialog(win, {
@@ -100,10 +100,20 @@ ipcMain.handle('save-page-as-pdf', async (event, defaultFileName) => {
     });
     if (canceled || !filePath) return { success: false };
 
+    // 🔑 콘텐츠 실제 크기(px)를 마이크론 단위로 변환해서, 스크롤/페이지 분할 없이 한 페이지에 다 담음
+    // (Chromium 인쇄 API는 CSS px 기준 96dpi를 가정: 1px = 1/96 inch = 25400/96 마이크론)
+    const PX_TO_MICRON = 25400 / 96;
+    const pageSize = contentSizePx
+      ? {
+          width: Math.ceil(contentSizePx.width * PX_TO_MICRON),
+          height: Math.ceil(contentSizePx.height * PX_TO_MICRON),
+        }
+      : 'A4';
+
     const pdfBuffer = await win.webContents.printToPDF({
       printBackground: true,
-      pageSize: 'A4',
-      margins: { marginType: 'default' },
+      pageSize,
+      margins: { marginType: 'none' },
     });
 
     require('fs').writeFileSync(filePath, pdfBuffer);
