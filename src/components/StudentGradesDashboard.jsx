@@ -176,11 +176,12 @@ function parseWorkbook(workbook) {
 
       Object.entries(MOCK_SUBJECT_HEADER_MAP).forEach(([headerSubj, category]) => {
         const gradeVal = row[`${headerSubj}_등급`];
-        if (gradeVal === null || gradeVal === undefined) return;
+        // 🔑 등급 칸이 비어있거나(null/undefined) 값이 0이면 "데이터 없음"으로 처리 (저장 자체를 건너뜀)
+        if (gradeVal === null || gradeVal === undefined || Number(gradeVal) === 0) return;
         const scoreVal = row[`${headerSubj}_표점`]; // 🔑 영어/한국사는 이 열 자체가 없어서 undefined → 0으로 처리됨
         student.mock[category][si] = {
           score: Number(scoreVal) || 0,
-          grade: Number(gradeVal) || 9,
+          grade: Number(gradeVal),
         };
       });
     });

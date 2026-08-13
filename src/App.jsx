@@ -214,7 +214,7 @@ export default function App() {
   const [tempApiKey, setTempApiKey] = useState('');
 
   const [newEvent, setNewEvent] = useState({
-    title: '', category: '교무회의', manager: localStorage.getItem('school_calendar_manager') || '',
+    title: '', category: '교무회의', manager: '',
     startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '', colorId: ''
   });
 
@@ -626,7 +626,7 @@ export default function App() {
   const handleCloseAddModal = () => {
     setIsAddModalOpen(false);
     setEditingProposalId(null);
-    setNewEvent({ title: '', category: Object.keys(categories)[0] || '기타', manager: localStorage.getItem('school_calendar_manager') || '', startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '' });
+    setNewEvent({ title: '', category: Object.keys(categories)[0] || '기타', manager: '', startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '' });
   };
 
   // 🔑 AI 분석 카드를 수정 모달에 채워서 열기
@@ -648,6 +648,43 @@ export default function App() {
     setIsAddModalOpen(true);
   };
 
+  // 🔑 [신규] 하루짜리 일정을 다른 날짜로 드래그하여 이동
+  const handleEventDateMove = async (eventId, newDateStr) => {
+    const movingEvent = events.find(ev => ev.id === eventId);
+    if (!movingEvent) return;
+
+    if (currentCalendarId === 'google') {
+      try {
+        const updatedForm = { ...movingEvent, startDate: newDateStr, endDate: newDateStr };
+        await window.electronAPI.googleUpdateEvent({ eventId, eventData: mapInternalToGoogleEvent(updatedForm) });
+        fetchGoogleEvents();
+      } catch (err) {
+        console.error("구글 일정 날짜 이동 실패:", err);
+        showToast("일정 이동에 실패했습니다.", "error");
+      }
+      return;
+    }
+
+    // 🔑 이동할 날짜의 맨 아래(가장 마지막 순서)로 배치
+    const targetDayEvents = events.filter(ev => ev.startDate === newDateStr && ev.endDate === newDateStr && ev.id !== eventId);
+    const updatedDayOrder = { ...(movingEvent.dayOrder || {}), [newDateStr]: targetDayEvents.length };
+
+    if (syncStatus === 'connected' && db) {
+      try {
+        await setDoc(doc(getEventsCollectionRef(currentCalendarId), eventId), { startDate: newDateStr, endDate: newDateStr, dayOrder: updatedDayOrder }, { merge: true });
+      } catch (err) {
+        console.error("일정 날짜 이동 실패:", err);
+        showToast("일정 이동에 실패했습니다.", "error");
+      }
+    } else {
+      setEvents(prev => {
+        const updated = prev.map(ev => ev.id === eventId ? { ...ev, startDate: newDateStr, endDate: newDateStr, dayOrder: updatedDayOrder } : ev);
+        localStorage.setItem('local_school_events', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  };
+
   // 일정 생성 데이터 전송 로직
   const handleAddEventSubmit = async (e) => {
     if (e) e.preventDefault();
@@ -661,7 +698,6 @@ export default function App() {
       return;
     }
 
-    if (newEvent.manager.trim()) localStorage.setItem('school_calendar_manager', newEvent.manager);
     const payload = { ...newEvent, createdAt: new Date().toISOString(), dayOrder: {} };
 
     if (currentCalendarId === 'google') {
@@ -981,6 +1017,7 @@ export default function App() {
               handleSwitchCalendar={handleSwitchCalendar}
               googleAccountEmail={googleAccountEmail}
               handleSwitchToGoogleCalendar={handleSwitchToGoogleCalendar}
+              onEventDateMove={handleEventDateMove}
             />
 
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}

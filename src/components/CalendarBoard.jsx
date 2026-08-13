@@ -11,7 +11,8 @@ export default React.memo(function CalendarBoard({
   onEventOrderCommit,   // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
   calendarList, currentCalendarId, isCalendarSwitcherOpen, setIsCalendarSwitcherOpen,
   newCalendarName, setNewCalendarName, handleCreateCalendar, handleDeleteCalendarEntry, handleSwitchCalendar,
-  googleAccountEmail, handleSwitchToGoogleCalendar
+  googleAccountEmail, handleSwitchToGoogleCalendar,
+  onEventDateMove
 }) {
   // 🔑 구글 4색 로고 (연동됐을 때만 탭에 표시)
   const GoogleLogoIcon = () => (
@@ -79,6 +80,19 @@ export default React.memo(function CalendarBoard({
    */
   const sortDayEvents = (dayEventsList, dateStr) => {
     return [...dayEventsList].sort((a, b) => {
+      // 🔑 여러 날짜에 걸친 "연속된 일정"을 항상 최상단으로 우선 배치
+      const isMultiA = !!(a.startDate && a.endDate && a.startDate !== a.endDate);
+      const isMultiB = !!(b.startDate && b.endDate && b.startDate !== b.endDate);
+      if (isMultiA !== isMultiB) return isMultiA ? -1 : 1;
+
+      // 🔑 연속된 일정끼리는 드래그 순서와 무관하게 항상 등록(입력)된 순서대로 배치
+      if (isMultiA && isMultiB) {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeA - timeB;
+      }
+
+      // 하루짜리 일정끼리는 기존 방식(드래그 순서 우선, 없으면 등록 순서) 그대로 유지
       const orderA = a.dayOrder && a.dayOrder[dateStr] !== undefined ? a.dayOrder[dateStr] : null;
       const orderB = b.dayOrder && b.dayOrder[dateStr] !== undefined ? b.dayOrder[dateStr] : null;
 
@@ -184,9 +198,26 @@ export default React.memo(function CalendarBoard({
     }
   };
 
-  const handleDropOnEvent = (e) => {
+  const handleDropOnEvent = (e, dateStr) => {
     e.preventDefault();
+    // 🔑 다른 날짜의 카드 위에 놓인 경우 = 그 날짜로 이동
+    if (draggedEvent && draggedDateStr && dateStr && draggedDateStr !== dateStr) {
+      handleMoveEventToDate(dateStr);
+      e.stopPropagation();
+      return;
+    }
     e.stopPropagation();
+    setDragOverEventId(null);
+  };
+
+  // 🔑 [신규] 하루짜리 일정을 다른 날짜로 드래그하여 이동
+  const handleMoveEventToDate = (targetDateStr) => {
+    if (!draggedEvent) return;
+    if (draggedEvent.startDate !== draggedEvent.endDate) return; // 연속 일정은 드래그 자체가 안 되지만 안전장치
+    if (targetDateStr === draggedDateStr) return; // 같은 날짜면 기존 순서변경 로직이 처리
+    if (onEventDateMove) onEventDateMove(draggedEvent.id, targetDateStr);
+    setDraggedEvent(null);
+    setDraggedDateStr(null);
     setDragOverEventId(null);
   };
 
@@ -228,28 +259,29 @@ export default React.memo(function CalendarBoard({
     const cardBgColor = isGoogleColored ? event.colorHex : (theme.color || '#EAE4F2');
     const textColor = isGoogleColored ? '#FFFFFF' : extractHexColor(theme.text);
     const isHovered = dragOverEventId === event.id;
+    const isMultiDay = !!(event.startDate && event.endDate && event.startDate !== event.endDate); // 🔑 연속된 일정은 순서 고정, 드래그 비활성화
 
     return (
       <div
         key={event.id} data-id={event.id}
         onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); setIsDetailModalOpen(true); }}
         
-        draggable="true"
-        onDragStart={(e) => handleDragStart(e, event, dateStr)}
-        onDragEnd={handleDragEnd}
-        onDragOver={handleDragOver}
-        onDragEnter={(e) => handleDragEnter(e, event, dateStr)}
-        onDrop={handleDropOnEvent}
+        draggable={!isMultiDay}
+        onDragStart={isMultiDay ? undefined : (e) => handleDragStart(e, event, dateStr)}
+        onDragEnd={isMultiDay ? undefined : handleDragEnd}
+        onDragOver={isMultiDay ? undefined : handleDragOver}
+        onDragEnter={isMultiDay ? undefined : (e) => handleDragEnter(e, event, dateStr)}
+        onDrop={isMultiDay ? undefined : (e) => handleDropOnEvent(e, dateStr)}
         
         className={`event-card text-xs leading-normal px-2 py-1 rounded-md border shadow-[0_1px_1px_rgba(0,0,0,0.02)] font-semibold break-keep flex items-center justify-between gap-1 
           transition-all duration-300 transform origin-center 
           ${isHovered ? 'scale-[1.03] -translate-y-0.5 shadow-md z-20' : 'scale-100 translate-y-0'}
-          active:cursor-grabbing`}
+          ${isMultiDay ? '' : 'active:cursor-grabbing'}`}
         style={{ 
           backgroundColor: cardBgColor, 
           color: textColor, 
           borderColor: cardBgColor, 
-          cursor: 'grab'
+          cursor: isMultiDay ? 'pointer' : 'grab'
         }}
         title={event.title}
       >
@@ -257,9 +289,11 @@ export default React.memo(function CalendarBoard({
           {event.startDate !== event.endDate && <CalendarDays className="w-3 h-3 shrink-0 opacity-70 mt-0.5" />}
           <span className="truncate flex-1">{event.title}</span>
         </div>
-        <span className="drag-handle text-gray-400 hover:text-gray-800 transition-colors pl-1" onClick={(e) => e.stopPropagation()}>
-          <Menu className="w-3 h-3 shrink-0" />
-        </span>
+        {!isMultiDay && (
+          <span className="drag-handle text-gray-400 hover:text-gray-800 transition-colors pl-1" onClick={(e) => e.stopPropagation()}>
+            <Menu className="w-3 h-3 shrink-0" />
+          </span>
+        )}
       </div>
     );
   };
@@ -441,6 +475,8 @@ export default React.memo(function CalendarBoard({
                 setNewEvent(prev => ({ ...prev, startDate: dateStr, endDate: dateStr }));
                 setIsAddModalOpen(true);
               }}
+              onDragOver={handleDragOver}
+              onDrop={(e) => { e.preventDefault(); handleMoveEventToDate(dateStr); }}
               className={`group border-r border-b border-[#E9E9E6] p-2 min-h-36 flex flex-col justify-between transition cursor-pointer relative w-full min-w-0 overflow-hidden ${
                 isSelected ? 'bg-slate-50/80' : 'bg-white hover:bg-slate-50/40'
               }`}
