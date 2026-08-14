@@ -38,7 +38,7 @@ export default React.memo(function SideAccordionPanel({
   setActiveProposalCatDropdownId, handleUpdateProposalCategory, handleAddSingleProposalCard, handleEditProposal,
   bookmarks, handleOpenBookmarkUrl, handleDeleteBookmark, newBookmarkTitle,
   setNewBookmarkTitle, newBookmarkUrl, setNewBookmarkUrl, handleAddBookmarkSubmit,
-  customTimetables, onUpdateGlobalTimetables, onDeleteGlobalTimetable
+  customTimetables, onUpdateGlobalTimetables, onDeleteGlobalTimetable, myClassNum, myTeacherName
 }) {
 
   // 시간표 제어 전용 상태 그룹
@@ -59,18 +59,30 @@ export default React.memo(function SideAccordionPanel({
   useEffect(() => {
     const classes = Object.keys(customTimetables.classes || {});
     if (classes.length > 0) {
-      setSelectedClass(prev => (prev && classes.includes(prev)) ? prev : classes[0]); // 🔑 선택된 반이 삭제되어 없으면 첫 반으로 자동 전환
+      // 🔑 저장해둔 담임반(myClassNum)과 이름이 일치하는 반이 있으면 그 반을 우선 선택 (마지막 숫자 기준 비교)
+      const myClassMatch = myClassNum
+        ? classes.find(c => (c.match(/(\d+)(?!.*\d)/)?.[0]) === String(myClassNum).trim())
+        : null;
+      setSelectedClass(prev => {
+        if (prev && classes.includes(prev)) return prev; // 선택된 반이 삭제되어 없으면 첫 반으로 자동 전환
+        return myClassMatch || classes[0];
+      });
     } else {
       setSelectedClass('');
     }
 
     const teachers = Object.keys(customTimetables.teachers || {});
     if (teachers.length > 0) {
-      setSelectedTeacher(prev => (prev && teachers.includes(prev)) ? prev : teachers[0]); // 🔑 선택된 교사가 삭제되어 없으면 첫 교사로 자동 전환
+      // 🔑 저장해둔 본인 이름(myTeacherName)과 일치하는 교사가 있으면 우선 선택
+      const myTeacherMatch = myTeacherName ? teachers.find(t => t === myTeacherName.trim()) : null;
+      setSelectedTeacher(prev => {
+        if (prev && teachers.includes(prev)) return prev;
+        return myTeacherMatch || teachers[0];
+      });
     } else {
       setSelectedTeacher('');
     }
-  }, [customTimetables]);
+  }, [customTimetables, myClassNum, myTeacherName]);
 
   useEffect(() => {
     if (activeSidePanel !== 'timetable') return;

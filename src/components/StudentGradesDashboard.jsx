@@ -333,7 +333,7 @@ function UploadButton({ fileInputRef, handleFile }) {
   );
 }
 
-function StudentGradesDashboardInner({ onClose }) {
+function StudentGradesDashboardInner({ onClose, myClassNum }) {
   const [classNum, setClassNum] = useState(null);
   const [studentNum, setStudentNum] = useState(null);
   const [searchQuery, setSearchQuery] = useState(""); // 🔑 [신규] 학생 이름 검색
@@ -370,8 +370,10 @@ function StudentGradesDashboardInner({ onClose }) {
         setMockSessions(sessions);
         const classes = Object.keys(dataObj).map(Number).sort((a, b) => a - b);
         if (classes.length) {
-          setClassNum(classes[0]);
-          const nums = Object.keys(dataObj[classes[0]]).map(Number).sort((a, b) => a - b);
+          // 🔑 저장해둔 담임반이 있으면 그 반을 우선 선택, 없으면 첫 번째 반
+          const myClass = myClassNum && classes.includes(Number(myClassNum)) ? Number(myClassNum) : classes[0];
+          setClassNum(myClass);
+          const nums = Object.keys(dataObj[myClass]).map(Number).sort((a, b) => a - b);
           setStudentNum(nums[0]);
         }
       }
@@ -510,8 +512,10 @@ function StudentGradesDashboardInner({ onClose }) {
         setMockSessions(sessions);
         setSimIdx(Infinity); // 🔑 새로 업로드하면 다시 최신 회차로 초기화
         saveToStorage(parsed, sessions);
-        setClassNum(classes[0]);
-        const nums = Object.keys(parsed[classes[0]]).map(Number).sort((a, b) => a - b);
+        // 🔑 저장해둔 담임반이 있으면 그 반을 우선 선택, 없으면 첫 번째 반
+        const myClass = myClassNum && classes.includes(Number(myClassNum)) ? Number(myClassNum) : classes[0];
+        setClassNum(myClass);
+        const nums = Object.keys(parsed[myClass]).map(Number).sort((a, b) => a - b);
         setStudentNum(nums[0]);
       } catch (err) {
         setUploadError("파일을 읽는 중 문제가 발생했어요. xlsx 파일인지 확인해주세요.");

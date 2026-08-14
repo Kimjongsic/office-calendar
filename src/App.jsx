@@ -271,6 +271,17 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState({ status: 'idle' }); // 🔑 idle | available | downloading | downloaded | error
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isGradesDashboardOpen, setIsGradesDashboardOpen] = useState(false); // 🔑 학생 성적 대시보드 모달
+  // 🔑 [신규] 담임반/본인 이름 — 시간표·성적분석에서 자동 선택용 (이 PC에만 저장)
+  const [myClassNum, setMyClassNum] = useState(() => localStorage.getItem('my_class_num') || '');
+  const [myTeacherName, setMyTeacherName] = useState(() => localStorage.getItem('my_teacher_name') || '');
+
+  const handleSaveMyInfo = (classNum, teacherName) => {
+    setMyClassNum(classNum);
+    setMyTeacherName(teacherName);
+    localStorage.setItem('my_class_num', classNum);
+    localStorage.setItem('my_teacher_name', teacherName);
+    showToast("내 정보가 저장되었습니다.", "success");
+  };
   const handleCloseGradesDashboard = useCallback(() => setIsGradesDashboardOpen(false), []); // 🔑 매초 재생성 방지
 
   const year = currentDate.getFullYear();
@@ -1057,6 +1068,7 @@ export default function App() {
               setNewBookmarkUrl={setNewBookmarkUrl} handleAddBookmarkSubmit={handleAddBookmarkSubmit}
               customTimetables={customTimetables} onUpdateGlobalTimetables={handleUpdateGlobalTimetables}
               onDeleteGlobalTimetable={handleDeleteGlobalTimetable}
+              myClassNum={myClassNum} myTeacherName={myTeacherName}
             />
             </div>
           </div>
@@ -1453,6 +1465,32 @@ export default function App() {
               <button onClick={() => setIsCategoryManageOpen(false)} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
             </div>
 
+            <div className="bg-teal-50/50 border border-teal-100 p-3.5 rounded-lg space-y-3">
+              <p className="text-xs font-bold text-teal-900">내 정보 (담임반 / 이름)</p>
+              <p className="text-[10px] text-gray-400 leading-snug">저장해두면 시간표와 성적분석에서 자동으로 내 반/이름이 선택됩니다. 이 정보는 이 컴퓨터에만 저장됩니다.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="text" placeholder="담임반 (예: 3)" defaultValue={myClassNum} id="my-class-num-input"
+                  className="w-full p-2 border border-teal-200 rounded text-xs bg-white focus:outline-none"
+                />
+                <input
+                  type="text" placeholder="이름 (예: 홍길동)" defaultValue={myTeacherName} id="my-teacher-name-input"
+                  className="w-full p-2 border border-teal-200 rounded text-xs bg-white focus:outline-none"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const classVal = document.getElementById('my-class-num-input').value.trim();
+                  const nameVal = document.getElementById('my-teacher-name-input').value.trim();
+                  handleSaveMyInfo(classVal, nameVal);
+                }}
+                className="w-full py-1.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded"
+              >
+                저장
+              </button>
+            </div>
+
             <div className="bg-blue-50/50 border border-blue-100 p-3.5 rounded-lg space-y-3">
               <p className="text-xs font-bold text-blue-900">개인 구글 캘린더 연동</p>
               {googleAccountEmail ? (
@@ -1608,7 +1646,7 @@ export default function App() {
       )}
 
       {/* 🔑 [신규] 학생 성적 대시보드 (전체화면 모달) */}
-      {isGradesDashboardOpen && <StudentGradesDashboard onClose={handleCloseGradesDashboard} />}
+      {isGradesDashboardOpen && <StudentGradesDashboard onClose={handleCloseGradesDashboard} myClassNum={myClassNum} />}
     </div>
   );
 }
