@@ -1,6 +1,6 @@
 // src/components/SideAccordionPanel.jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet } from 'lucide-react';
+import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Trash2, Settings2 } from 'lucide-react';
 
 // 🔑 2026년 유치원·초등학교·중학교·고등학교 교원 봉급표 (월지급액, 단위: 원)
 // 출처: 인사혁신처 고시. 매년 갱신되니 새 봉급표 발표 시 이 배열만 교체하면 됩니다.
@@ -38,7 +38,7 @@ export default React.memo(function SideAccordionPanel({
   setActiveProposalCatDropdownId, handleUpdateProposalCategory, handleAddSingleProposalCard, handleEditProposal,
   bookmarks, handleOpenBookmarkUrl, handleDeleteBookmark, newBookmarkTitle,
   setNewBookmarkTitle, newBookmarkUrl, setNewBookmarkUrl, handleAddBookmarkSubmit,
-  customTimetables, onUpdateGlobalTimetables 
+  customTimetables, onUpdateGlobalTimetables, onDeleteGlobalTimetable
 }) {
 
   // 시간표 제어 전용 상태 그룹
@@ -54,16 +54,21 @@ export default React.memo(function SideAccordionPanel({
   // 현재 편집 중인 셀의 좌표(dayIdx, periodIdx) 추적 상태
   const [editingCell, setEditingCell] = useState(null); 
   const [cellInputValue, setCellInputValue] = useState('');
+  const [isManageListOpen, setIsManageListOpen] = useState(false); // 🔑 [신규] 등록된 시간표 관리 목록 펼침 상태
 
   useEffect(() => {
     const classes = Object.keys(customTimetables.classes || {});
     if (classes.length > 0) {
-      setSelectedClass(prev => prev || classes[0]);
+      setSelectedClass(prev => (prev && classes.includes(prev)) ? prev : classes[0]); // 🔑 선택된 반이 삭제되어 없으면 첫 반으로 자동 전환
+    } else {
+      setSelectedClass('');
     }
 
     const teachers = Object.keys(customTimetables.teachers || {});
     if (teachers.length > 0) {
-      setSelectedTeacher(prev => prev || teachers[0]);
+      setSelectedTeacher(prev => (prev && teachers.includes(prev)) ? prev : teachers[0]); // 🔑 선택된 교사가 삭제되어 없으면 첫 교사로 자동 전환
+    } else {
+      setSelectedTeacher('');
     }
   }, [customTimetables]);
 
@@ -249,35 +254,96 @@ export default React.memo(function SideAccordionPanel({
    */
   const downloadExcelTemplate = () => {
     const wb = XLSX.utils.book_new();
-    const templateData = [];
 
     if (timetableTab === 'class') {
-      PERIODS.forEach((periodLabel) => {
-        templateData.push({ '교시/요일': periodLabel, '월': '', '화': '', '수': '', '목': '', '금': '' });
+      // 🔑 [신규] 전체 반 일괄 업로드용 양식: 1행 요일(병합), 2행 교시, 3행부터 반별 데이터
+      const DAY_PERIOD_COUNTS = [
+        { day: '월', count: 6 },
+        { day: '화', count: 7 },
+        { day: '수', count: 6 },
+        { day: '목', count: 7 },
+        { day: '금', count: 7 },
+      ];
+
+      const row1 = ['반'];
+      const row2 = [''];
+      DAY_PERIOD_COUNTS.forEach(({ day, count }) => {
+        for (let p = 1; p <= count; p++) {
+          row1.push(p === 1 ? day : ''); // 요일은 각 구간 첫 칸에만 표기 (나머지는 빈칸 → 파싱 시 같은 요일로 인식)
+          row2.push(String(p));
+        }
       });
+
+      // 🔑 반 번호를 미리 채우지 않고, 빈 행 몇 개만 제공 — 필요한 반만큼 직접 입력하도록
+      const EMPTY_ROW_COUNT = 5;
+      const dataRows = Array.from({ length: EMPTY_ROW_COUNT }, () => {
+        const row = [''];
+        for (let c = 1; c < row1.length; c++) row.push('');
+        return row;
+      });
+
+      const aoa = [row1, row2, ...dataRows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      // 요일 헤더 시각적으로 병합
+      let colCursor = 1;
+      ws['!merges'] = DAY_PERIOD_COUNTS.map(({ count }) => {
+        const merge = { s: { r: 0, c: colCursor }, e: { r: 0, c: colCursor + count - 1 } };
+        colCursor += count;
+        return merge;
+      });
+
+      Object.keys(ws).forEach((cellRef) => {
+        if (cellRef[0] === '!') return;
+        if (ws[cellRef]) ws[cellRef].t = 's';
+      });
+
+      XLSX.utils.book_append_sheet(wb, ws, '전체 반 시간표');
+      XLSX.writeFile(wb, '전체_반_시간표_양식.xlsx');
     } else {
-      PERIODS.forEach((periodLabel) => {
-        templateData.push({ '교시/분류': `${periodLabel} (과목명)`, '월': '', '화': '', '수': '', '목': '', '금': '' });
-        templateData.push({ '교시/요일': `${periodLabel} (학년반)`, '월': '', '화': '', '수': '', '목': '', '금': '' });
+      // 🔑 [신규] 전체 교사 일괄 업로드용 양식: 1행 요일(병합), 2행 교시, 3행부터 교사별 데이터
+      const DAY_PERIOD_COUNTS = [
+        { day: '월', count: 6 },
+        { day: '화', count: 7 },
+        { day: '수', count: 6 },
+        { day: '목', count: 7 },
+        { day: '금', count: 7 },
+      ];
+
+      const row1 = ['교사명'];
+      const row2 = [''];
+      DAY_PERIOD_COUNTS.forEach(({ day, count }) => {
+        for (let p = 1; p <= count; p++) {
+          row1.push(p === 1 ? day : '');
+          row2.push(String(p));
+        }
       });
+
+      const EMPTY_ROW_COUNT = 5;
+      const dataRows = Array.from({ length: EMPTY_ROW_COUNT }, () => {
+        const row = [''];
+        for (let c = 1; c < row1.length; c++) row.push('');
+        return row;
+      });
+
+      const aoa = [row1, row2, ...dataRows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      let colCursor = 1;
+      ws['!merges'] = DAY_PERIOD_COUNTS.map(({ count }) => {
+        const merge = { s: { r: 0, c: colCursor }, e: { r: 0, c: colCursor + count - 1 } };
+        colCursor += count;
+        return merge;
+      });
+
+      Object.keys(ws).forEach((cellRef) => {
+        if (cellRef[0] === '!') return;
+        if (ws[cellRef]) ws[cellRef].t = 's';
+      });
+
+      XLSX.utils.book_append_sheet(wb, ws, '전체 교사 시간표');
+      XLSX.writeFile(wb, '전체_교사_시간표_양식.xlsx');
     }
-
-    const ws = XLSX.utils.json_to_sheet(templateData);
-
-    Object.keys(ws).forEach((cellRef) => {
-      if (cellRef[0] === '!') return; 
-      if (ws[cellRef]) {
-        ws[cellRef].t = 's'; 
-      }
-    });
-
-    XLSX.utils.book_append_sheet(wb, ws, '시간표 양식');
-    
-    const fileName = timetableTab === 'class' 
-      ? '반별_시간표_양식.xlsx' 
-      : '교사별_시간표_양식.xlsx';
-
-    XLSX.writeFile(wb, fileName);
   };
 
   /**
@@ -305,6 +371,137 @@ export default React.memo(function SideAccordionPanel({
         const worksheet = workbook.Sheets[sheetName];
         
         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        // 🔑 [신규] A1 셀이 "반"이면 "전체 반 일괄 업로드" 양식으로 인식하여, 시트 안의 모든 반을 한 번에 등록
+        if (timetableTab === 'class' && rows[0] && String(rows[0][0] || '').trim() === '반') {
+          const dayHeaderRow = rows[0] || [];
+          const periodHeaderRow = rows[1] || [];
+          const DAY_NAME_TO_IDX = { '월': 0, '화': 1, '수': 2, '목': 3, '금': 4 };
+
+          // 요일 헤더가 병합되어 있으므로, 값이 있는 열부터 다음 요일이 나오기 전까지를 그 요일의 열 범위로 인식
+          const dayColumns = [];
+          let currentDay = null;
+          let currentCols = [];
+          for (let col = 1; col < dayHeaderRow.length; col++) {
+            const label = String(dayHeaderRow[col] || '').trim();
+            if (label && DAY_NAME_TO_IDX[label] !== undefined) {
+              if (currentDay) dayColumns.push({ day: currentDay, cols: currentCols });
+              currentDay = label;
+              currentCols = [col];
+            } else if (currentDay) {
+              currentCols.push(col);
+            }
+          }
+          if (currentDay) dayColumns.push({ day: currentDay, cols: currentCols });
+
+          // 각 열이 몇 교시에 해당하는지 매핑 (2행의 숫자 기준)
+          const colToPeriodIdx = {};
+          dayColumns.forEach(({ cols }) => {
+            cols.forEach((col, i) => {
+              const periodNum = parseInt(periodHeaderRow[col], 10);
+              colToPeriodIdx[col] = (periodNum || i + 1) - 1; // 0-based (0~6)
+            });
+          });
+
+          // 3행부터 각 행(반)마다 시간표 그리드 생성
+          const parsedClasses = {};
+          for (let r = 2; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || row.length === 0) continue;
+            const classNumRaw = String(row[0] || '').trim();
+            if (!classNumRaw || !/^\d+$/.test(classNumRaw)) continue; // 🔑 "반" 열이 숫자가 아니면(빈 칸, 텍스트 등) 건너뜀
+            const classLabel = `2-${classNumRaw}`; // 🔑 "2-1" 형식으로 등록 (2학년 고정), "시간표" 접미사는 화면 표시할 때만 붙임
+
+            const grid = createEmptyGrid();
+            dayColumns.forEach(({ day, cols }) => {
+              const dayIdx = DAY_NAME_TO_IDX[day];
+              cols.forEach((col) => {
+                const periodIdx = colToPeriodIdx[col];
+                if (periodIdx === undefined || periodIdx < 0 || periodIdx > 6) return;
+                grid[dayIdx][periodIdx] = String(row[col] || '').trim();
+              });
+            });
+            parsedClasses[classLabel] = grid; // 🔑 이미 같은 이름의 반이 있으면 이 값으로 자동 덮어씀
+          }
+
+          const classNames = Object.keys(parsedClasses);
+          classNames.forEach((className) => {
+            onUpdateGlobalTimetables('classes', className, parsedClasses[className]); // 🔑 반마다 개별 필드로 저장 (동시 편집 충돌 방지)
+          });
+
+          if (classNames.length > 0) setSelectedClass(classNames[0]);
+          e.target.value = '';
+          return; // 🔑 일괄 업로드 처리 끝났으니 아래의 기존(단일 반) 파싱 로직은 건너뜀
+        }
+
+        // 🔑 [신규] A1 셀이 "교사명"이면 "전체 교사 일괄 업로드" 양식으로 인식하여, 시트 안의 모든 교사를 한 번에 등록
+        if (timetableTab === 'teacher' && rows[0] && String(rows[0][0] || '').trim() === '교사명') {
+          const dayHeaderRow = rows[0] || [];
+          const periodHeaderRow = rows[1] || [];
+          const DAY_NAME_TO_IDX = { '월': 0, '화': 1, '수': 2, '목': 3, '금': 4 };
+
+          const dayColumns = [];
+          let currentDay = null;
+          let currentCols = [];
+          for (let col = 1; col < dayHeaderRow.length; col++) {
+            const label = String(dayHeaderRow[col] || '').trim();
+            if (label && DAY_NAME_TO_IDX[label] !== undefined) {
+              if (currentDay) dayColumns.push({ day: currentDay, cols: currentCols });
+              currentDay = label;
+              currentCols = [col];
+            } else if (currentDay) {
+              currentCols.push(col);
+            }
+          }
+          if (currentDay) dayColumns.push({ day: currentDay, cols: currentCols });
+
+          const colToPeriodIdx = {};
+          dayColumns.forEach(({ cols }) => {
+            cols.forEach((col, i) => {
+              const periodNum = parseInt(periodHeaderRow[col], 10);
+              colToPeriodIdx[col] = (periodNum || i + 1) - 1;
+            });
+          });
+
+          // 🔑 "3. 김길동(16)" 형식에서 순번/단위수를 떼고 순수 이름만 추출
+          const extractTeacherName = (raw) => {
+            const label = String(raw || '').trim();
+            const m = /^\d+\.\s*(.+?)\(\d+\)$/.exec(label);
+            return m ? m[1].trim() : label;
+          };
+
+          const parsedTeachers = {};
+          for (let r = 2; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || row.length === 0) continue;
+            const rawLabel = String(row[0] || '').trim();
+            if (!rawLabel) continue;
+            const teacherName = extractTeacherName(rawLabel);
+            if (!teacherName) continue;
+
+            const grid = createEmptyGrid();
+            dayColumns.forEach(({ day, cols }) => {
+              const dayIdx = DAY_NAME_TO_IDX[day];
+              cols.forEach((col) => {
+                const periodIdx = colToPeriodIdx[col];
+                if (periodIdx === undefined || periodIdx < 0 || periodIdx > 6) return;
+                // 🔑 셀 안에 이미 "반\n과목" 형태로 줄바꿈이 들어있으므로 그대로 사용 (기존 렌더링 로직과 호환)
+                grid[dayIdx][periodIdx] = String(row[col] || '').trim();
+              });
+            });
+            parsedTeachers[teacherName] = grid;
+          }
+
+          const teacherNames = Object.keys(parsedTeachers);
+          teacherNames.forEach((name) => {
+            onUpdateGlobalTimetables('teachers', name, parsedTeachers[name]); // 🔑 교사마다 개별 필드로 저장 (동시 편집 충돌 방지)
+          });
+
+          if (teacherNames.length > 0) setSelectedTeacher(teacherNames[0]);
+          e.target.value = '';
+          return; // 🔑 일괄 업로드 처리 끝났으니 아래의 기존(단일 교사) 파싱 로직은 건너뜀
+        }
+
         const parsedGrid = createEmptyGrid(); // 🔑 배열의 배열 대신 맵 구조로 생성
         
         if (timetableTab === 'class') {
@@ -349,8 +546,13 @@ export default React.memo(function SideAccordionPanel({
     reader.readAsBinaryString(file);
   };
 
-  const classList = Object.keys(customTimetables.classes || {});
-  const teacherList = Object.keys(customTimetables.teachers || {});
+  // 🔑 "2-1", "2-10", "2-2" 같은 반 이름을 뒤쪽 숫자 기준으로 자연스럽게 정렬 (2-1, 2-2, ..., 2-10 순)
+  const classList = Object.keys(customTimetables.classes || {}).sort((a, b) => {
+    const numA = parseInt(a.match(/(\d+)(?!.*\d)/)?.[0] ?? '0', 10);
+    const numB = parseInt(b.match(/(\d+)(?!.*\d)/)?.[0] ?? '0', 10);
+    return numA - numB;
+  });
+  const teacherList = Object.keys(customTimetables.teachers || {}).sort((a, b) => a.localeCompare(b, 'ko')); // 🔑 가나다순 정렬
   const hasClasses = classList.length > 0;
   const hasTeachers = teacherList.length > 0;
 
@@ -379,6 +581,57 @@ export default React.memo(function SideAccordionPanel({
                 </div>
               </div>
 
+              {/* 🔑 X 버튼과 동일한 absolute top-3 기준으로 위치를 맞춤 (X 버튼 바로 왼쪽) */}
+              <button
+                type="button"
+                onClick={() => setIsManageListOpen(!isManageListOpen)}
+                className={`absolute top-3 right-10 p-1 rounded-md transition-all z-10 ${isManageListOpen ? 'bg-blue-50 text-blue-700' : 'text-gray-400 hover:text-gray-800 hover:bg-gray-100'}`}
+                title="등록된 시간표 관리"
+              >
+                <Settings2 className="w-4 h-4" />
+              </button>
+
+              {/* 🔑 관리 버튼을 누르면 펼쳐지는 등록된 시간표 삭제 목록 — 현재 탭(반별/교사별)에 해당하는 것만 표시 */}
+              {isManageListOpen && (
+                <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg p-2.5 space-y-1 max-h-40 overflow-y-auto">
+                  {timetableTab === 'class' ? (
+                    classList.length > 0 ? (
+                      classList.map((cls) => (
+                        <div key={cls} className="flex items-center justify-between bg-white border border-[#E9E9E6] rounded-md px-2.5 py-1.5">
+                          <span className="text-xs font-semibold text-gray-700 truncate">{cls} 시간표</span>
+                          <button
+                            type="button"
+                            onClick={() => { if (window.confirm(`'${cls} 시간표'를 삭제할까요?`)) onDeleteGlobalTimetable('classes', cls); }}
+                            className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[11px] text-gray-400 text-center py-2">등록된 반별 시간표가 없습니다.</p>
+                    )
+                  ) : (
+                    teacherList.length > 0 ? (
+                      teacherList.map((teacher) => (
+                        <div key={teacher} className="flex items-center justify-between bg-white border border-[#E9E9E6] rounded-md px-2.5 py-1.5">
+                          <span className="text-xs font-semibold text-gray-700 truncate">{teacher} 선생님 시간표</span>
+                          <button
+                            type="button"
+                            onClick={() => { if (window.confirm(`'${teacher} 선생님' 시간표를 삭제할까요?`)) onDeleteGlobalTimetable('teachers', teacher); }}
+                            className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[11px] text-gray-400 text-center py-2">등록된 교사별 시간표가 없습니다.</p>
+                    )
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg shrink-0">
                 <button 
                   onClick={() => { setTimetableTab('class'); setEditingCell(null); }} 
@@ -398,15 +651,22 @@ export default React.memo(function SideAccordionPanel({
                 <div className="space-y-1.5">
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">등록/선택된 학급 리스트</label>
                   {hasClasses ? (
-                    <select 
-                      value={selectedClass} 
-                      onChange={(e) => { setSelectedClass(e.target.value); setEditingCell(null); }}
-                      className="w-full p-2 border border-[#E9E9E6] bg-[#F7F7F5] rounded-md font-bold text-gray-700 focus:outline-none"
-                    >
+                    <div className="flex flex-wrap gap-1.5">
                       {classList.map(c => (
-                        <option key={c} value={c}>{c} 시간표</option>
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => { setSelectedClass(c); setEditingCell(null); }}
+                          className={`w-14 h-9 shrink-0 rounded-md text-xs font-bold transition-colors border truncate px-1 ${
+                            selectedClass === c
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-[#F7F7F5] text-gray-600 border-[#E9E9E6] hover:bg-gray-100'
+                          }`}
+                        >
+                          {c}
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   ) : (
                     <div className="text-center py-2.5 px-3 border border-dashed border-gray-200 rounded-lg text-gray-400 font-medium bg-[#F7F7F5]/30 text-[11px]">
                       하단에서 반별 시간표 엑셀 파일을 등록해주세요.
@@ -417,15 +677,22 @@ export default React.memo(function SideAccordionPanel({
                 <div className="space-y-1.5">
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">등록/선택된 교사 리스트</label>
                   {hasTeachers ? (
-                    <select 
-                      value={selectedTeacher} 
-                      onChange={(e) => { setSelectedTeacher(e.target.value); setEditingCell(null); }}
-                      className="w-full p-2 border border-[#E9E9E6] bg-[#F7F7F5] rounded-md font-bold text-gray-700 focus:outline-none"
-                    >
+                    <div className="flex flex-wrap gap-1.5">
                       {teacherList.map(t => (
-                        <option key={t} value={t}>{t} 선생님</option>
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => { setSelectedTeacher(t); setEditingCell(null); }}
+                          className={`w-16 h-9 shrink-0 rounded-md text-xs font-bold transition-colors border truncate px-1 ${
+                            selectedTeacher === t
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-[#F7F7F5] text-gray-600 border-[#E9E9E6] hover:bg-gray-100'
+                          }`}
+                        >
+                          {t}
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   ) : (
                     <div className="text-center py-2.5 px-3 border border-dashed border-gray-200 rounded-lg text-gray-400 font-medium bg-[#F7F7F5]/30 text-[11px]">
                       하단에서 교사별 시간표 엑셀 파일을 등록해주세요.
@@ -514,11 +781,11 @@ export default React.memo(function SideAccordionPanel({
                                 {cellText ? (
                                   timetableTab === 'teacher' ? (
                                     <div className="flex flex-col w-full truncate">
-                                      <span className="block truncate font-black text-blue-800">{displaySubject || '-'}</span>
-                                      <span className="block truncate text-[9px] font-bold text-gray-400 mt-0.5">{displayClassInfo || '-'}</span>
+                                      <span className="block truncate font-black text-blue-800">{(displaySubject || '-').split('_').pop()}</span>
+                                      <span className="block truncate text-[9px] font-bold text-gray-400 mt-0.5">{(displayClassInfo || '-').split('_').pop()}</span>
                                     </div>
                                   ) : (
-                                    cellText
+                                    cellText.split('_').join('\n')
                                   )
                                 ) : (
                                   (timetableTab === 'class' ? (selectedClass ? '+' : '-') : (selectedTeacher ? '+' : '-'))
@@ -597,6 +864,54 @@ export default React.memo(function SideAccordionPanel({
                 ) : ( <p className="text-[10px] text-gray-400 italic bg-gray-50/60 p-2 rounded text-center border border-dashed">석식 미운영 일자</p> )}
               </div>
             ) : ( <p className="text-xs text-gray-400 italic text-center py-5 bg-[#F7F7F5]/40 rounded-lg border border-dashed border-gray-200">지정된 급식 정보가 존재하지 않습니다.</p> )}
+
+            {/* 🔑 선택된 날짜의 요일 4교시 기준으로 교사를 두 그룹으로 분류 (날짜 선택에 따라 함께 갱신) */}
+            {(() => {
+              const DAY_NAME_TO_IDX = { '월': 0, '화': 1, '수': 2, '목': 3, '금': 4 };
+              const selectedDayIdx = DAY_NAME_TO_IDX[['일', '월', '화', '수', '목', '금', '토'][selectedDate.getDay()]];
+
+              if (selectedDayIdx === undefined) return null; // 🔑 토/일요일은 시간표 대상 아님
+
+              const teacherEntries = Object.entries(customTimetables.teachers || {});
+              if (teacherEntries.length === 0) return null;
+
+              const with4th = [];
+              const without4th = [];
+              teacherEntries.forEach(([name, grid]) => {
+                const cell = grid?.[selectedDayIdx]?.[3]; // 🔑 4교시 = index 3
+                if (cell && String(cell).trim()) with4th.push(name);
+                else without4th.push(name);
+              });
+              with4th.sort((a, b) => a.localeCompare(b, 'ko'));
+              without4th.sort((a, b) => a.localeCompare(b, 'ko'));
+
+              return (
+                <div className="space-y-2 pt-3 border-t border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-sky-50 text-sky-700 rounded-lg"><Users className="w-4 h-4" /></div>
+                    <h3 className="text-xs font-black uppercase tracking-wider text-gray-700">{selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일 급식 메이트</h3>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-[#F7F7F5] border border-gray-100 rounded-lg p-2 space-y-1">
+                      <p className="text-xs font-black text-gray-500">4교시 없음 😊 ({without4th.length})</p>
+                      <div className="flex flex-wrap gap-1">
+                        {without4th.length > 0 ? without4th.map(name => (
+                          <span key={name} className="text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded px-1.5 py-0.5">{name}</span>
+                        )) : <span className="text-xs text-gray-300 italic">없음</span>}
+                      </div>
+                    </div>
+                    <div className="bg-[#F7F7F5] border border-gray-100 rounded-lg p-2 space-y-1">
+                      <p className="text-xs font-black text-gray-500">4교시 있음 😢 ({with4th.length})</p>
+                      <div className="flex flex-wrap gap-1">
+                        {with4th.length > 0 ? with4th.map(name => (
+                          <span key={name} className="text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded px-1.5 py-0.5">{name}</span>
+                        )) : <span className="text-xs text-gray-300 italic">없음</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 

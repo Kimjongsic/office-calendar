@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { db, initAnonymousAuth } from './firebase';
 // 드래그 앤 드롭 순서 변경의 원자적 일괄 처리를 위해 writeBatch 라이브러리 추가 바인딩
-import { collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, deleteField, onSnapshot, writeBatch } from 'firebase/firestore';
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -478,6 +478,27 @@ export default function App() {
         );
       } catch (err) {
         console.error("원격 시간표 동기화 실패: ", err);
+      }
+    }
+  };
+
+  // 🔑 [신규] 반/교사 시간표 개별 삭제 (Firestore 필드 자체를 삭제해야 하므로 deleteField 사용)
+  const handleDeleteGlobalTimetable = async (bucketKey, targetKeyName) => {
+    setCustomTimetables(prev => {
+      const updatedBucket = { ...(prev[bucketKey] || {}) };
+      delete updatedBucket[targetKeyName];
+      return { ...prev, [bucketKey]: updatedBucket };
+    });
+
+    if (syncStatus === 'connected' && db) {
+      try {
+        await setDoc(
+          doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'school_global_timetables'),
+          { [bucketKey]: { [targetKeyName]: deleteField() } },
+          { merge: true }
+        );
+      } catch (err) {
+        console.error("원격 시간표 삭제 실패: ", err);
       }
     }
   };
@@ -978,7 +999,7 @@ export default function App() {
   const prevDaysInMonth = new Date(year, month, 0).getDate();
 
   return (
-    <div className="min-h-screen bg-[#F7F7F5] text-[#37352F] font-sans antialiased flex flex-col select-none">
+    <div className="h-screen overflow-hidden bg-[#F7F7F5] text-[#37352F] font-sans antialiased flex flex-col select-none">
       <DashboardHeader 
         syncStatus={syncStatus} isAlwaysOnTop={isAlwaysOnTop} isMoveLocked={isMoveLocked} opacityValue={opacityValue}
         isOpacityDropdownOpen={isOpacityDropdownOpen} setIsOpacityDropdownOpen={setIsOpacityDropdownOpen}
@@ -992,8 +1013,8 @@ export default function App() {
         handleQuitAndInstall={handleQuitAndInstall}
       />
 
-      <div className="flex-1 flex flex-row min-w-0 w-full relative overflow-hidden gap-1.5">
-        <div className="flex-1 flex flex-col gap-1.5 p-3 md:p-3.5 min-w-0 overflow-y-auto">
+      <div className="flex-1 flex flex-row min-w-0 min-h-0 w-full relative overflow-hidden gap-1.5">
+        <div className="flex-1 flex flex-col gap-1.5 p-3 md:p-3.5 min-w-0 min-h-0 overflow-y-auto">
           <TopWidgets 
             todayNotice={todayNotice} activeNoticeIdx={activeNoticeIdx} setActiveNoticeIdx={setActiveNoticeIdx}
             setNoticeFormList={setNoticeFormList} setIsNoticeEditOpen={setIsNoticeEditOpen} calculatedDdayValue={calculatedDdayValue}
@@ -1020,6 +1041,8 @@ export default function App() {
               onEventDateMove={handleEventDateMove}
             />
 
+            {/* 🔑 [수정] 사이드바만 스크롤 시 화면에 고정되도록 sticky 적용 */}
+            <div className="sticky top-3.5 self-start">
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
             <SideAccordionPanel 
               activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} selectedDate={selectedDate}
@@ -1033,7 +1056,9 @@ export default function App() {
               newBookmarkTitle={newBookmarkTitle} setNewBookmarkTitle={setNewBookmarkTitle} newBookmarkUrl={newBookmarkUrl}
               setNewBookmarkUrl={setNewBookmarkUrl} handleAddBookmarkSubmit={handleAddBookmarkSubmit}
               customTimetables={customTimetables} onUpdateGlobalTimetables={handleUpdateGlobalTimetables}
+              onDeleteGlobalTimetable={handleDeleteGlobalTimetable}
             />
+            </div>
           </div>
         </div>
 

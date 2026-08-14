@@ -77,13 +77,19 @@ function parseNaeisRows(rows, ensure) {
       { termNo: 2, credit: r[14], rawScore: r[15], gradeVal: r[18], achievement: r[19] },
     ];
     blocks.forEach((b) => {
-      if (b.rawScore === null && b.gradeVal === null) return;
+      const hasRawScore = b.rawScore !== null && b.rawScore !== undefined && b.rawScore !== '';
+      const hasAchievement = b.achievement !== null && b.achievement !== undefined && String(b.achievement).trim() !== '';
+      const hasGrade = b.gradeVal !== null && b.gradeVal !== undefined && b.gradeVal !== '';
+      // 🔑 원점수/성취도/등급 중 아무것도 없으면(이수 자체를 안 한 경우) 목록에도 안 보이게 완전히 건너뜀
+      if (!hasRawScore && !hasAchievement && !hasGrade) return;
+
       const term = `${gradeYear}학년 ${b.termNo}학기`;
       const student = ensure(cls, num);
       pushSchoolEntry(student, category, term, {
-        rawScore: Number(b.rawScore) || 0,
-        achievement: String(b.achievement || "").trim() || "-",
-        grade: Number(b.gradeVal) || 9,
+        rawScore: hasRawScore ? Number(b.rawScore) : null,
+        achievement: hasAchievement ? String(b.achievement).trim() : null,
+        grade: hasGrade ? Number(b.gradeVal) : null,
+        hasGrade, // 🔑 등급 평균 계산에 포함시킬지 여부
         credit: Number(b.credit) || 1,
         courseName: String(courseName || "").trim(),
       });
@@ -208,10 +214,11 @@ function collectTerms(uploaded) {
 }
 
 function weightedAvg(entries) {
-  if (!entries.length) return null;
-  const creditSum = entries.reduce((a, e) => a + (e.credit || 1), 0);
+  const gradedEntries = entries.filter((e) => e.hasGrade); // 🔑 등급이 있는 기록만 평균 계산에 포함
+  if (!gradedEntries.length) return null;
+  const creditSum = gradedEntries.reduce((a, e) => a + (e.credit || 1), 0);
   if (!creditSum) return null;
-  return entries.reduce((a, e) => a + e.grade * (e.credit || 1), 0) / creditSum;
+  return gradedEntries.reduce((a, e) => a + e.grade * (e.credit || 1), 0) / creditSum;
 }
 function allEntries(studentData) {
   const out = [];
@@ -329,6 +336,8 @@ function UploadButton({ fileInputRef, handleFile }) {
 function StudentGradesDashboardInner({ onClose }) {
   const [classNum, setClassNum] = useState(null);
   const [studentNum, setStudentNum] = useState(null);
+  const [searchQuery, setSearchQuery] = useState(""); // 🔑 [신규] 학생 이름 검색
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [uploaded, setUploaded] = useState(null);
   const [mockSessions, setMockSessions] = useState([]); // 🔑 실제 업로드된 엑셀에 존재하는 모의고사 회차만 보관
   const [simIdx, setSimIdx] = useState(Infinity); // 🔑 선택된 모의고사 회차 인덱스 (기본값: 항상 최신 회차로 클램프됨)
@@ -409,10 +418,10 @@ function StudentGradesDashboardInner({ onClose }) {
     overlay.style.background = '#F5F6F8';
     overlay.style.backdropFilter = 'none';
 
-    // 🔑 3개 버튼(PDF저장/엑셀업로드/데이터삭제) 임시로 숨김
-    const buttonsEl = overlay.querySelector('.no-capture');
-    const prevButtonsDisplay = buttonsEl ? buttonsEl.style.display : null;
-    if (buttonsEl) buttonsEl.style.display = 'none';
+    // 🔑 캡처에서 제외할 요소들(검색창, PDF저장/삭제 버튼, X 버튼) 전부 임시로 숨김
+    const noCaptureEls = overlay.querySelectorAll('.no-capture');
+    const prevNoCaptureDisplays = Array.from(noCaptureEls).map((el) => el.style.display);
+    noCaptureEls.forEach((el) => { el.style.display = 'none'; });
 
     // 🔑 모달을 제외한 나머지 화면(캘린더, 헤더 등)을 전부 숨김
     const hidden = [];
@@ -466,7 +475,7 @@ function StudentGradesDashboardInner({ onClose }) {
       setUploadError("PDF 저장 중 문제가 발생했어요.");
     } finally {
       hidden.forEach(({ el, prev }) => { el.style.display = prev; });
-      if (buttonsEl) buttonsEl.style.display = prevButtonsDisplay;
+      noCaptureEls.forEach((el, i) => { el.style.display = prevNoCaptureDisplays[i]; });
       overlay.style.background = prevBg;
       overlay.style.backdropFilter = prevBackdrop;
       // 🔑 측정을 위해 임시로 바꿨던 레이아웃 스타일 복원
@@ -574,6 +583,18 @@ function StudentGradesDashboardInner({ onClose }) {
   const classNumbers = Object.keys(uploaded).map(Number).sort((a, b) => a - b);
   const ALL_TERMS = collectTerms(uploaded);
 
+  // 🔑 [신규] 이름으로 전체 반을 대상으로 검색 (반 2자리 + 관계없이 전체)
+  const searchResults = searchQuery.trim()
+    ? classNumbers.flatMap((cls) => {
+        const classMap = uploaded[cls] || {};
+        return Object.keys(classMap)
+          .map(Number)
+          .filter((num) => (classMap[num]?.name || "").includes(searchQuery.trim()))
+          .sort((a, b) => a - b)
+          .map((num) => ({ cls, num, name: classMap[num].name }));
+      })
+    : [];
+
   const overallAvg = schoolAvgGrade(studentData);
   const subjectAverages = SUBJECTS.map((subj) => ({ subject: subj, avg: subjectAvgGrade(studentData, subj) }));
 
@@ -651,9 +672,7 @@ function StudentGradesDashboardInner({ onClose }) {
         style={{ fontFamily: "-apple-system, 'Malgun Gothic', sans-serif", padding: "28px 24px" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <CloseButton />
-
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px", flexWrap: "wrap", gap: "12px", paddingRight: "48px" }}>
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px", flexWrap: "wrap", gap: "12px" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: "22px", fontWeight: 800, color: "#1F3A5F", letterSpacing: "-0.02em" }}>
               {classNum}반 {effectiveStudentNum}번{studentData.name ? ` ${studentData.name}` : ""} 종합성적분석
@@ -662,13 +681,68 @@ function StudentGradesDashboardInner({ onClose }) {
               업로드된 데이터 사용 중 · {classNum}반 {size}명
             </p>
           </div>
-          <div className="no-capture" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={handlePrintPdf} disabled={isSavingPdf} style={{ ...btnStyle, background: "#2a78d6", color: "#fff", border: "1px solid #2a78d6" }}>
-              {isSavingPdf ? '저장 중...' : 'PDF로 저장'}
-            </button>
-            <UploadButton fileInputRef={fileInputRef} handleFile={handleFile} />
-            <button onClick={() => { clearStorage(); setUploadError(""); }} style={btnStyle}>
-              저장된 데이터 삭제
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            {/* 🔑 [이동] 학생 이름 검색 (전체 반 대상) — PDF로 저장 버튼 왼쪽 */}
+            <div className="no-capture" style={{ position: "relative" }}>
+              <input
+                type="text"
+                placeholder="학생 이름 검색"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setIsSearchOpen(true); }}
+                onFocus={() => setIsSearchOpen(true)}
+                onBlur={() => setTimeout(() => setIsSearchOpen(false), 150)}
+                style={{ ...selectStyle, ...btnStyle, height: "36px", boxSizing: "border-box", width: "160px", cursor: "text" }}
+              />
+              {isSearchOpen && searchQuery.trim() && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 4px)", right: 0, width: "220px",
+                  background: "#FFFFFF", border: "1px solid #E2E5EA", borderRadius: "10px",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 20, maxHeight: "260px", overflowY: "auto",
+                }}>
+                  {searchResults.length === 0 ? (
+                    <p style={{ fontSize: "12px", color: "#9AA0A8", padding: "12px" }}>일치하는 학생이 없어요.</p>
+                  ) : (
+                    searchResults.map(({ cls, num, name }) => (
+                      <button
+                        key={`${cls}-${num}`}
+                        type="button"
+                        onMouseDown={() => {
+                          setClassNum(cls);
+                          setStudentNum(num);
+                          setSearchQuery("");
+                          setIsSearchOpen(false);
+                        }}
+                        style={{
+                          display: "block", width: "100%", textAlign: "left", padding: "8px 12px",
+                          fontSize: "13px", color: "#1F3A5F", background: "transparent", border: "none", cursor: "pointer",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#F5F6F8")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        {cls}반 {num}번 {name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="no-capture" style={{ display: "flex", gap: "10px" }}>
+              <button onClick={handlePrintPdf} disabled={isSavingPdf} style={{ ...btnStyle, height: "36px", boxSizing: "border-box", background: "#2a78d6", color: "#fff", border: "1px solid #2a78d6" }}>
+                {isSavingPdf ? '저장 중...' : 'PDF로 저장'}
+              </button>
+              <button onClick={() => { clearStorage(); setUploadError(""); }} style={{ ...btnStyle, height: "36px", boxSizing: "border-box" }}>
+                저장된 데이터 삭제
+              </button>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="no-capture"
+              style={{ ...btnStyle, height: "36px", width: "36px", boxSizing: "border-box", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+              title="닫기"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
         </header>
@@ -695,7 +769,10 @@ function StudentGradesDashboardInner({ onClose }) {
           </select>
           <label style={{ fontSize: "12px", fontWeight: 600, color: "#1F3A5F" }}>번호</label>
           <select value={effectiveStudentNum} onChange={(e) => setStudentNum(Number(e.target.value))} style={selectStyle}>
-            {studentNumbers.map((n) => <option key={n} value={n}>{n}번</option>)}
+            {studentNumbers.map((n) => {
+              const studentName = uploadedClassMap[n]?.name;
+              return <option key={n} value={n}>{n}번{studentName ? ` ${studentName}` : ''}</option>;
+            })}
           </select>
         </div>
 
@@ -788,17 +865,26 @@ function StudentGradesDashboardInner({ onClose }) {
                     {term}
                   </div>
                   {lines.length === 0 && <p style={{ fontSize: "12px", color: "#9AA0A8" }}>데이터 없음</p>}
-                  {lines.map(({ subj, entry }, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px", fontSize: "12.5px", padding: "4px 0", color: "#374151" }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: SUBJECT_COLORS[subj], flexShrink: 0 }} />
-                        {entry.courseName}
-                      </span>
-                      <span style={{ color: "#9AA0A8", whiteSpace: "nowrap" }}>
-                        ({entry.rawScore} / {entry.achievement} / {entry.grade})
-                      </span>
-                    </div>
-                  ))}
+                  {lines.map(({ subj, entry }, i) => {
+                    // 🔑 원점수/성취도/등급 중 실제로 있는 정보만 "/"로 이어붙여 표시
+                    const parts = [];
+                    if (entry.rawScore !== null && entry.rawScore !== undefined) parts.push(entry.rawScore);
+                    if (entry.achievement) parts.push(entry.achievement);
+                    if (entry.grade !== null && entry.grade !== undefined) parts.push(entry.grade);
+                    return (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px", fontSize: "12.5px", padding: "4px 0", color: "#374151" }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: SUBJECT_COLORS[subj], flexShrink: 0 }} />
+                          {entry.courseName}
+                        </span>
+                        {parts.length > 0 && (
+                          <span style={{ color: "#9AA0A8", whiteSpace: "nowrap" }}>
+                            ({parts.join(' / ')})
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -873,9 +959,15 @@ function StudentGradesDashboardInner({ onClose }) {
           })}
         </div>
 
-        <p style={{ textAlign: "center", fontSize: "12px", color: "#9AA0A8", margin: "16px 0 0" }}>
-          이 데이터는 이 컴퓨터에만 저장되며 다른 선생님에게는 공유되지 않습니다.
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
+          <p style={{ fontSize: "12px", color: "#9AA0A8", margin: 0 }}>
+            이 데이터는 이 컴퓨터에만 저장되며 다른 선생님에게는 공유되지 않습니다.
+          </p>
+          {/* 🔑 [신규] 스크롤을 끝까지 내렸을 때도 어떤 학생인지 알 수 있도록 하단에 다시 표시 */}
+          <p style={{ fontSize: "13px", fontWeight: 700, color: "#1F3A5F", margin: 0 }}>
+            {classNum}반 {effectiveStudentNum}번{studentData.name ? ` ${studentData.name}` : ""}
+          </p>
+        </div>
       </div>
     </div>
   );
