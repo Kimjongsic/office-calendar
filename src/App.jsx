@@ -282,6 +282,10 @@ export default function App() {
     localStorage.setItem('my_teacher_name', teacherName);
     showToast("내 정보가 저장되었습니다.", "success");
   };
+
+  const [myClassNumInput, setMyClassNumInput] = useState(myClassNum);
+  const [myTeacherNameInput, setMyTeacherNameInput] = useState(myTeacherName);
+  const [isGeminiSectionOpen, setIsGeminiSectionOpen] = useState(false); // 🔑 Gemini API 키 설정, 평소엔 접혀있음
   const handleCloseGradesDashboard = useCallback(() => setIsGradesDashboardOpen(false), []); // 🔑 매초 재생성 방지
 
   const year = currentDate.getFullYear();
@@ -1462,33 +1466,31 @@ export default function App() {
           <div className="bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
             <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
               <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Settings className="w-5 h-5 text-gray-600" /> 교무실 통합 제어 설정</h3>
-              <button onClick={() => setIsCategoryManageOpen(false)} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsCategoryManageOpen(false)} className="p-1 hover:bg-gray-100 rounded" style={{ WebkitAppRegion: 'no-drag' }}><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="bg-teal-50/50 border border-teal-100 p-3.5 rounded-lg space-y-3">
-              <p className="text-xs font-bold text-teal-900">내 정보 (담임반 / 이름)</p>
-              <p className="text-[10px] text-gray-400 leading-snug">저장해두면 시간표와 성적분석에서 자동으로 내 반/이름이 선택됩니다. 이 정보는 이 컴퓨터에만 저장됩니다.</p>
-              <div className="grid grid-cols-2 gap-2">
+            <div className="bg-teal-50/50 border border-teal-100 p-2.5 rounded-lg">
+              <div className="flex items-center gap-1.5">
                 <input
-                  type="text" placeholder="담임반 (예: 3)" defaultValue={myClassNum} id="my-class-num-input"
-                  className="w-full p-2 border border-teal-200 rounded text-xs bg-white focus:outline-none"
+                  type="text" placeholder="담임반" value={myClassNumInput}
+                  onChange={(e) => setMyClassNumInput(e.target.value)}
+                  title="담임반 (예: 3) — 저장 시 시간표/성적분석에서 자동 선택"
+                  className="w-16 p-1.5 border border-teal-200 rounded text-xs bg-white focus:outline-none shrink-0"
                 />
                 <input
-                  type="text" placeholder="이름 (예: 홍길동)" defaultValue={myTeacherName} id="my-teacher-name-input"
-                  className="w-full p-2 border border-teal-200 rounded text-xs bg-white focus:outline-none"
+                  type="text" placeholder="이름" value={myTeacherNameInput}
+                  onChange={(e) => setMyTeacherNameInput(e.target.value)}
+                  title="본인 이름 — 저장 시 교사별 시간표에서 자동 선택"
+                  className="flex-1 min-w-0 p-1.5 border border-teal-200 rounded text-xs bg-white focus:outline-none"
                 />
+                <button
+                  type="button"
+                  onClick={() => handleSaveMyInfo(myClassNumInput.trim(), myTeacherNameInput.trim())}
+                  className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded shrink-0"
+                >
+                  저장
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const classVal = document.getElementById('my-class-num-input').value.trim();
-                  const nameVal = document.getElementById('my-teacher-name-input').value.trim();
-                  handleSaveMyInfo(classVal, nameVal);
-                }}
-                className="w-full py-1.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded"
-              >
-                저장
-              </button>
             </div>
 
             <div className="bg-blue-50/50 border border-blue-100 p-3.5 rounded-lg space-y-3">
@@ -1506,13 +1508,24 @@ export default function App() {
               <p className="text-[10px] text-gray-400 leading-snug">연동한 구글 캘린더는 본인만 볼 수 있으며 다른 선생님과 공유되지 않습니다.</p>
             </div>
 
-            <div className="bg-purple-50/50 border border-purple-100 p-3.5 rounded-lg space-y-3">
-              <p className="text-xs font-bold text-purple-900">Gemini AI 비서 API 키 설정</p>
-              <input type="password" placeholder="AI_STUDIO_API_KEY 입력" value={tempApiKey} onChange={(e) => setTempApiKey(e.target.value)} className="w-full p-2 border border-purple-200 rounded text-xs bg-white focus:outline-none" />
-              <div className="flex gap-2">
-                <button type="button" onClick={handleSaveApiKeyToLocal} className="flex-1 py-1.5 border border-purple-300 text-purple-700 text-xs font-bold rounded">내PC에만 임시등록</button>
-                <button type="button" onClick={handleShareApiKeyToFirestore} className="flex-1 py-1.5 bg-purple-700 text-white text-xs font-bold rounded">전체교사 공유저장</button>
-              </div>
+            <div className="bg-purple-50/50 border border-purple-100 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setIsGeminiSectionOpen(!isGeminiSectionOpen)}
+                className="w-full flex items-center justify-between p-3 text-left"
+              >
+                <p className="text-xs font-bold text-purple-900">Gemini AI 비서 API 키 설정</p>
+                <ChevronDown className={`w-4 h-4 text-purple-700 transition-transform ${isGeminiSectionOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {isGeminiSectionOpen && (
+                <div className="p-3.5 pt-0 space-y-3">
+                  <input type="password" placeholder="AI_STUDIO_API_KEY 입력" value={tempApiKey} onChange={(e) => setTempApiKey(e.target.value)} className="w-full p-2 border border-purple-200 rounded text-xs bg-white focus:outline-none" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleSaveApiKeyToLocal} className="flex-1 py-1.5 border border-purple-300 text-purple-700 text-xs font-bold rounded">내PC에만 임시등록</button>
+                    <button type="button" onClick={handleShareApiKeyToFirestore} className="flex-1 py-1.5 bg-purple-700 text-white text-xs font-bold rounded">전체교사 공유저장</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="bg-[#F7F7F5] p-3.5 rounded-lg border border-[#E9E9E6] space-y-3">
