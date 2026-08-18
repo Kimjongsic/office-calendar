@@ -38,7 +38,9 @@ import {
   Utensils,
   Bookmark,
   Wallet,
-  BarChart3
+  BarChart3,
+  Link2,
+  Edit2
 } from 'lucide-react';
 
 import DashboardHeader from './components/DashboardHeader';
@@ -271,6 +273,13 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState({ status: 'idle' }); // 🔑 idle | available | downloading | downloaded | error
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isGradesDashboardOpen, setIsGradesDashboardOpen] = useState(false); // 🔑 학생 성적 대시보드 모달
+  const [isUsefulLinksOpen, setIsUsefulLinksOpen] = useState(false); // 🔑 [신규] 유용한 기능 모음 모달
+  const [usefulLinks, setUsefulLinks] = useState([]); // 🔑 [신규] 전교 공유 링크 목록 (Firestore 실시간 동기화)
+  const [editingLinkId, setEditingLinkId] = useState(null); // 🔑 수정 중인 링크 id (null이면 신규 등록 폼)
+  const [linkFormTitle, setLinkFormTitle] = useState('');
+  const [linkFormDesc, setLinkFormDesc] = useState('');
+  const [linkFormUrl, setLinkFormUrl] = useState('');
+  const [isLinkFormOpen, setIsLinkFormOpen] = useState(false);
   // 🔑 [신규] 담임반/본인 이름 — 시간표·성적분석에서 자동 선택용 (이 PC에만 저장)
   const [myClassNum, setMyClassNum] = useState(() => localStorage.getItem('my_class_num') || '');
   const [myTeacherName, setMyTeacherName] = useState(() => localStorage.getItem('my_teacher_name') || '');
@@ -388,6 +397,16 @@ export default function App() {
       setEvents(items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
     });
   }, [syncStatus, currentCalendarId]);
+
+  // 🔑 [신규] 유용한 기능 링크 — 전교 공유, 실시간 동기화
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    const linksRef = collection(db, 'artifacts', appId, 'public', 'data', 'usefulLinks');
+    return onSnapshot(linksRef, (snapshot) => {
+      const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
+      setUsefulLinks(items.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')));
+    });
+  }, [syncStatus]);
 
   // 🔑 [신규] "내 구글 캘린더" 탭을 보고 있을 때, 현재 보이는 달 기준(+여유 7일)으로 구글 일정을 불러옴
   const fetchGoogleEvents = async () => {
@@ -719,6 +738,48 @@ export default function App() {
         return updated;
       });
     }
+  };
+
+  // 🔑 [신규] 유용한 기능 링크 등록/수정
+  const handleSaveUsefulLink = async () => {
+    const title = linkFormTitle.trim();
+    const url = linkFormUrl.trim();
+    if (!title || !url) return showToast("제목과 링크 주소를 입력해 주세요.", "error");
+
+    const payload = { title, description: linkFormDesc.trim(), url, createdAt: editingLinkId ? undefined : new Date().toISOString() };
+    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+
+    if (syncStatus === 'connected' && db) {
+      const linksRef = collection(db, 'artifacts', appId, 'public', 'data', 'usefulLinks');
+      if (editingLinkId) {
+        await setDoc(doc(linksRef, editingLinkId), payload, { merge: true });
+      } else {
+        await setDoc(doc(linksRef), payload);
+      }
+    }
+    setLinkFormTitle(''); setLinkFormDesc(''); setLinkFormUrl(''); setEditingLinkId(null); setIsLinkFormOpen(false);
+    showToast(editingLinkId ? "수정되었습니다." : "등록되었습니다.", "success");
+  };
+
+  const handleDeleteUsefulLink = async (id) => {
+    if (!window.confirm("이 링크를 삭제할까요?")) return;
+    if (syncStatus === 'connected' && db) {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'usefulLinks', id));
+    }
+  };
+
+  const handleStartEditLink = (link) => {
+    setEditingLinkId(link.id);
+    setLinkFormTitle(link.title);
+    setLinkFormDesc(link.description || '');
+    setLinkFormUrl(link.url);
+    setIsLinkFormOpen(true);
+  };
+
+  const handleStartNewLink = () => {
+    setEditingLinkId(null);
+    setLinkFormTitle(''); setLinkFormDesc(''); setLinkFormUrl('');
+    setIsLinkFormOpen(true);
   };
 
   // 일정 생성 데이터 전송 로직
@@ -1086,6 +1147,7 @@ export default function App() {
           <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'bookmark' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'salary' ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
           <button type="button" onClick={() => setIsGradesDashboardOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isGradesDashboardOpen ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="학생 성적 대시보드"><BarChart3 className="w-5 h-5" /></button>
+          <button type="button" onClick={() => setIsUsefulLinksOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isUsefulLinksOpen ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="유용한 기능"><Link2 className="w-5 h-5" /></button>
         </div>
       </div>
 
@@ -1660,6 +1722,57 @@ export default function App() {
 
       {/* 🔑 [신규] 학생 성적 대시보드 (전체화면 모달) */}
       {isGradesDashboardOpen && <StudentGradesDashboard onClose={handleCloseGradesDashboard} myClassNum={myClassNum} />}
+
+      {/* 🔑 [신규] 유용한 기능 모음 — 외부 도구(구글 시트 등) 링크 모음. 항목은 아래 usefulLinks 배열에 계속 추가 가능 */}
+      {isUsefulLinksOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsUsefulLinksOpen(false)}>
+          <div className="relative bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Link2 className="w-5 h-5 text-emerald-600" /> 유용한 기능</h3>
+              <button onClick={() => setIsUsefulLinksOpen(false)} className="p-1 hover:bg-gray-100 rounded" style={{ WebkitAppRegion: 'no-drag' }}><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-2">
+              {usefulLinks.length === 0 && !isLinkFormOpen && (
+                <p className="text-xs text-gray-400 text-center py-4">등록된 링크가 없습니다.</p>
+              )}
+              {usefulLinks.map((link) => (
+                <div key={link.id} className="group flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => window.electronAPI?.openExternal ? window.electronAPI.openExternal(link.url) : window.open(link.url, '_blank')}
+                    className="flex-1 min-w-0 flex items-center justify-between p-3 bg-[#F7F7F5] hover:bg-gray-100 rounded-lg border border-[#E9E9E6] text-left transition"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-gray-700 truncate">{link.title}</p>
+                      {link.description && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{link.description}</p>}
+                    </div>
+                    <span className="text-gray-300 text-xs shrink-0 ml-2">열기 ↗</span>
+                  </button>
+                  <button type="button" onClick={() => handleStartEditLink(link)} className="p-1.5 text-gray-300 hover:text-gray-700 hover:bg-gray-100 rounded shrink-0" title="수정"><Edit2 className="w-3.5 h-3.5" /></button>
+                  <button type="button" onClick={() => handleDeleteUsefulLink(link.id)} className="p-1.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 rounded shrink-0" title="삭제"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+            </div>
+
+            {isLinkFormOpen ? (
+              <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg p-3 space-y-2">
+                <input type="text" placeholder="제목 (예: 선택교과 좌석표 만들기)" value={linkFormTitle} onChange={(e) => setLinkFormTitle(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
+                <input type="text" placeholder="설명 (선택)" value={linkFormDesc} onChange={(e) => setLinkFormDesc(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
+                <input type="text" placeholder="링크 주소 (https://...)" value={linkFormUrl} onChange={(e) => setLinkFormUrl(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
+                <div className="flex gap-2 pt-1">
+                  <button type="button" onClick={() => { setIsLinkFormOpen(false); setEditingLinkId(null); }} className="flex-1 py-1.5 border border-[#E9E9E6] text-gray-600 rounded text-xs font-bold">취소</button>
+                  <button type="button" onClick={handleSaveUsefulLink} className="flex-1 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-xs font-bold">{editingLinkId ? '수정 완료' : '등록'}</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={handleStartNewLink} className="w-full py-2 border border-dashed border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                <Plus className="w-3.5 h-3.5" /> 새 링크 추가
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
