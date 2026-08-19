@@ -273,7 +273,7 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState({ status: 'idle' }); // 🔑 idle | available | downloading | downloaded | error
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isGradesDashboardOpen, setIsGradesDashboardOpen] = useState(false); // 🔑 학생 성적 대시보드 모달
-  const [isUsefulLinksOpen, setIsUsefulLinksOpen] = useState(false); // 🔑 [신규] 유용한 기능 모음 모달
+  const [isUsefulLinksOpen, setIsUsefulLinksOpen] = useState(false); // 🔑 유용한 기능 모음 모달
   const [usefulLinks, setUsefulLinks] = useState([]); // 🔑 [신규] 전교 공유 링크 목록 (Firestore 실시간 동기화)
   const [editingLinkId, setEditingLinkId] = useState(null); // 🔑 수정 중인 링크 id (null이면 신규 등록 폼)
   const [linkFormTitle, setLinkFormTitle] = useState('');
