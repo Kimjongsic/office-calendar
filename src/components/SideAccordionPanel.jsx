@@ -1,6 +1,6 @@
 // src/components/SideAccordionPanel.jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Trash2, Settings2 } from 'lucide-react';
+import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Settings2, Trash2, Link2 } from 'lucide-react';
 
 // 🔑 2026년 유치원·초등학교·중학교·고등학교 교원 봉급표 (월지급액, 단위: 원)
 // 출처: 인사혁신처 고시. 매년 갱신되니 새 봉급표 발표 시 이 배열만 교체하면 됩니다.
@@ -38,7 +38,10 @@ export default React.memo(function SideAccordionPanel({
   setActiveProposalCatDropdownId, handleUpdateProposalCategory, handleAddSingleProposalCard, handleEditProposal,
   bookmarks, handleOpenBookmarkUrl, handleDeleteBookmark, newBookmarkTitle,
   setNewBookmarkTitle, newBookmarkUrl, setNewBookmarkUrl, handleAddBookmarkSubmit,
-  customTimetables, onUpdateGlobalTimetables, onDeleteGlobalTimetable, myClassNum, myTeacherName
+  customTimetables, onUpdateGlobalTimetables, onDeleteGlobalTimetable, myClassNum, myTeacherName,
+  usefulLinks, isLinkFormOpen, setIsLinkFormOpen,
+  linkFormTitle, setLinkFormTitle, linkFormDesc, setLinkFormDesc, linkFormUrl, setLinkFormUrl,
+  editingLinkId, handleSaveUsefulLink, handleDeleteUsefulLink, handleStartEditLink, handleStartNewLink
 }) {
 
   // 시간표 제어 전용 상태 그룹
@@ -1201,6 +1204,57 @@ export default React.memo(function SideAccordionPanel({
               <p>· 매달 17일에 급여기간이 자동으로 새로 시작됩니다.</p>
               <p>· 본봉(세전, 수당 제외) 기준의 재미용 참고 수치입니다.</p>
             </div>
+          </div>
+        )}
+
+        {/* ==================== 6. 공유 도구함 패널 ==================== */}
+        {activeSidePanel === 'tools' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
+              <div className="p-1.5 bg-emerald-50 text-emerald-700 rounded-lg"><Link2 className="w-4 h-4" /></div>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-gray-700">공유 도구함</h3>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {usefulLinks.length === 0 && !isLinkFormOpen && (
+                <p className="text-xs text-gray-400 text-center py-6 bg-gray-50/50 rounded-lg border border-dashed">등록된 링크가 없습니다.</p>
+              )}
+              {usefulLinks.map((link) => (
+                <div key={link.id} className="group flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => window.electronAPI?.openExternal ? window.electronAPI.openExternal(link.url) : window.open(link.url, '_blank')}
+                    className="flex-1 min-w-0 flex items-center justify-between p-2.5 bg-[#F7F7F5] hover:bg-gray-100 rounded-lg border border-[#E9E9E6] text-left transition"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-gray-700 truncate">{link.title}</p>
+                      {link.description && <p className="text-[10px] text-gray-400 mt-0.5 truncate">{link.description}</p>}
+                    </div>
+                    <span className="text-gray-300 text-[10px] shrink-0 ml-2">열기 ↗</span>
+                  </button>
+                  <button type="button" onClick={() => handleStartEditLink(link)} className="p-1.5 text-gray-300 hover:text-gray-700 hover:bg-gray-100 rounded shrink-0" title="수정"><Edit2 className="w-3.5 h-3.5" /></button>
+                  <button type="button" onClick={() => handleDeleteUsefulLink(link.id)} className="p-1.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 rounded shrink-0" title="삭제"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+            </div>
+
+            {isLinkFormOpen ? (
+              <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg p-3 space-y-2">
+                <input type="text" placeholder="제목 (예: 선택교과 좌석표 만들기)" value={linkFormTitle} onChange={(e) => setLinkFormTitle(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
+                <input type="text" placeholder="설명 (선택)" value={linkFormDesc} onChange={(e) => setLinkFormDesc(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
+                <input type="text" placeholder="링크 주소 (https://...)" value={linkFormUrl} onChange={(e) => setLinkFormUrl(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
+                <div className="flex gap-2 pt-1">
+                  <button type="button" onClick={() => setIsLinkFormOpen(false)} className="flex-1 py-1.5 border border-[#E9E9E6] text-gray-600 rounded text-xs font-bold">취소</button>
+                  <button type="button" onClick={handleSaveUsefulLink} className="flex-1 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-xs font-bold">{editingLinkId ? '수정 완료' : '등록'}</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={handleStartNewLink} className="w-full py-2 border border-dashed border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                <Plus className="w-3.5 h-3.5" /> 새 링크 추가
+              </button>
+            )}
           </div>
         )}
 

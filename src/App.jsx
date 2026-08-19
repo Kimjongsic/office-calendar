@@ -273,7 +273,6 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState({ status: 'idle' }); // 🔑 idle | available | downloading | downloaded | error
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isGradesDashboardOpen, setIsGradesDashboardOpen] = useState(false); // 🔑 학생 성적 대시보드 모달
-  const [isUsefulLinksOpen, setIsUsefulLinksOpen] = useState(false); // 🔑 유용한 기능 모음 모달
   const [usefulLinks, setUsefulLinks] = useState([]); // 🔑 [신규] 전교 공유 링크 목록 (Firestore 실시간 동기화)
   const [editingLinkId, setEditingLinkId] = useState(null); // 🔑 수정 중인 링크 id (null이면 신규 등록 폼)
   const [linkFormTitle, setLinkFormTitle] = useState('');
@@ -294,6 +293,12 @@ export default function App() {
 
   const [myClassNumInput, setMyClassNumInput] = useState(myClassNum);
   const [myTeacherNameInput, setMyTeacherNameInput] = useState(myTeacherName);
+
+  // 🔑 [신규] 야자감독 구글시트 자동 동기화
+  const [sheetSyncConfig, setSheetSyncConfig] = useState(null); // { spreadsheetId, calendarName }
+  const [sheetSyncIdInput, setSheetSyncIdInput] = useState('');
+  const [isSyncingSheet, setIsSyncingSheet] = useState(false);
+  const [isEditingSheetSyncId, setIsEditingSheetSyncId] = useState(false); // 🔑 [신규] ID 수정 모드 여부
   const [isGeminiSectionOpen, setIsGeminiSectionOpen] = useState(false); // 🔑 Gemini API 키 설정, 평소엔 접혀있음
   const handleCloseGradesDashboard = useCallback(() => setIsGradesDashboardOpen(false), []); // 🔑 매초 재생성 방지
 
@@ -405,6 +410,18 @@ export default function App() {
     return onSnapshot(linksRef, (snapshot) => {
       const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
       setUsefulLinks(items.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')));
+    });
+  }, [syncStatus]);
+
+  // 🔑 [신규] 야자감독 구글시트 동기화 설정 — 전교 공유
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'sheet_sync'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setSheetSyncConfig(data);
+        setSheetSyncIdInput(data.spreadsheetId || '');
+      }
     });
   }, [syncStatus]);
 
@@ -782,6 +799,138 @@ export default function App() {
     setIsLinkFormOpen(true);
   };
 
+  // 🔑 [신규] 야자감독 구글시트 동기화 설정 저장 (전교 공유)
+  const handleSaveSheetSyncConfig = async () => {
+    const spreadsheetId = sheetSyncIdInput.trim();
+    if (!spreadsheetId) return showToast("스프레드시트 ID를 입력해 주세요.", "error");
+    if (syncStatus === 'connected' && db) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'sheet_sync'), { spreadsheetId, calendarName: '야자감독' }, { merge: true });
+    }
+    setIsEditingSheetSyncId(false);
+    showToast("동기화 설정이 저장되었습니다.", "success");
+  };
+
+  // 🔑 Google Sheets API v4로 전체 탭 목록을 조회해서, keyword가 포함된 첫 번째 탭의 실제 이름을 반환
+  const findSheetTabTitleByKeyword = async (spreadsheetId, keyword) => {
+    const apiKey = import.meta.env.VITE_GOOGLE_SHEETS_API_KEY;
+    if (!apiKey) throw new Error('Google Sheets API 키가 설정되어 있지 않습니다.');
+    const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title&key=${apiKey}`;
+    const res = await fetch(metaUrl);
+    if (!res.ok) throw new Error('시트 목록을 불러오지 못했습니다. 공유 설정 또는 API 키를 확인해주세요.');
+    const data = await res.json();
+    const titles = (data.sheets || []).map((s) => s.properties.title);
+    return titles.find((t) => t.includes(keyword)) || null;
+  };
+
+  // 🔑 [신규] 구글시트에서 야자감독 배정표를 읽어와 "야자감독" 캘린더에 자동 반영
+  const handleSyncFromGoogleSheet = useCallback(async (config, targetYear, targetMonth) => {
+    if (!config || !config.spreadsheetId) return;
+    const targetCal = calendarList.find((c) => c.name === (config.calendarName || '야자감독'));
+    if (!targetCal) return; // 해당 이름의 캘린더가 없으면 조용히 종료
+
+    setIsSyncingSheet(true);
+    try {
+      // 🔑 1단계: "N월"이 포함된 탭 이름을 정확히 찾음
+      const apiKey = import.meta.env.VITE_GOOGLE_SHEETS_API_KEY;
+      if (!apiKey) throw new Error('Google Sheets API 키가 설정되어 있지 않습니다.');
+      const monthLabel = `${targetMonth + 1}월`;
+      const tabTitle = await findSheetTabTitleByKeyword(config.spreadsheetId, monthLabel);
+      if (!tabTitle) throw new Error(`"${monthLabel}"이 포함된 탭을 찾을 수 없습니다.`);
+
+      // 🔑 2단계: 셀 값 + 서식(취소선 등)을 함께 조회 (Sheets API v4, includeGridData)
+      const dataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${config.spreadsheetId}?ranges=${encodeURIComponent(tabTitle)}&includeGridData=true&fields=sheets.data.rowData.values(formattedValue,effectiveFormat.textFormat.strikethrough)&key=${apiKey}`;
+      const res = await fetch(dataUrl);
+      if (!res.ok) throw new Error('시트를 불러오지 못했습니다. 공유 설정 또는 API 키를 확인해주세요.');
+      const data = await res.json();
+      const gridRows = data.sheets?.[0]?.data?.[0]?.rowData || [];
+      // rows[r][c] = { value: '텍스트', strikethrough: true/false }
+      const rows = gridRows.map((rd) =>
+        (rd.values || []).map((cell) => ({
+          value: (cell.formattedValue || '').trim(),
+          strikethrough: !!cell.effectiveFormat?.textFormat?.strikethrough,
+        }))
+      );
+
+      // "담당교사" 헤더 셀 위치 찾기
+      let headerRowIdx = -1, teacherColIdx = -1;
+      for (let r = 0; r < rows.length; r++) {
+        const c = rows[r].findIndex((cell) => cell.value === '담당교사');
+        if (c !== -1) { headerRowIdx = r; teacherColIdx = c; break; }
+      }
+      if (headerRowIdx === -1) throw new Error('"담당교사" 열을 찾을 수 없습니다.');
+
+      const dateNumberRow = rows[headerRowIdx + 1] || [];
+      // 날짜 열 매핑: 1~31 사이 숫자가 있는 열만 날짜 열로 인식
+      const dateColMap = {}; // colIdx -> day
+      dateNumberRow.forEach((cell, c) => {
+        const n = parseInt(cell.value, 10);
+        if (n >= 1 && n <= 31) dateColMap[c] = n;
+      });
+
+      // 교사 행 스캔: "요일별 합계" 행 전까지
+      const dutyMap = {}; // day -> teacherName
+      for (let r = headerRowIdx + 2; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row) continue;
+        const teacherName = (row[teacherColIdx]?.value || '').trim();
+        if (teacherName === '요일별 합계' || teacherName === '') continue;
+        if (teacherName.includes('평감독') || teacherName.includes('금감독')) break;
+
+        Object.entries(dateColMap).forEach(([colIdx, day]) => {
+          const cell = row[colIdx];
+          // 🔑 값이 정확히 "1"이고, 취소선이 없는 경우만 실제 배정으로 인정
+          if (cell && cell.value === '1' && !cell.strikethrough) dutyMap[day] = teacherName;
+        });
+      }
+
+      // Firestore에 반영: 이 동기화로 생성된 일정만 안전하게 갱신/정리 (수동 등록 일정은 건드리지 않음)
+      const eventsRef = getEventsCollectionRef(targetCal.id);
+      const pad = (n) => String(n).padStart(2, '0');
+      const seenIds = new Set();
+
+      for (const [dayStr, teacherName] of Object.entries(dutyMap)) {
+        const dateStr = `${targetYear}-${pad(targetMonth + 1)}-${pad(Number(dayStr))}`;
+        const eventId = `sheet-duty-${dateStr}`;
+        seenIds.add(eventId);
+        await setDoc(doc(eventsRef, eventId), {
+          title: `${teacherName} 선생님`,
+          category: '기타',
+          manager: teacherName,
+          startDate: dateStr,
+          endDate: dateStr,
+          startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '',
+          dayOrder: {},
+          createdAt: new Date().toISOString(),
+          source: 'sheet-sync', // 🔑 이 동기화가 만든 일정임을 표시 (안전한 정리를 위해)
+        }, { merge: true });
+      }
+
+      // 이번 달에 이 동기화가 예전에 만들었던 일정 중, 지금은 시트에서 사라진 것들 정리
+      const existingSyncedThisMonth = events.filter((ev) =>
+        ev.source === 'sheet-sync' &&
+        ev.startDate && ev.startDate.startsWith(`${targetYear}-${pad(targetMonth + 1)}-`)
+      );
+      for (const ev of existingSyncedThisMonth) {
+        if (!seenIds.has(ev.id)) {
+          await deleteDoc(doc(eventsRef, ev.id));
+        }
+      }
+
+      showToast("야자감독 일정이 동기화되었습니다.", "success");
+    } catch (err) {
+      console.error("구글시트 동기화 실패:", err);
+      showToast(err.message || "구글시트 동기화에 실패했습니다.", "error");
+    } finally {
+      setIsSyncingSheet(false);
+    }
+  }, [calendarList, events]);
+
+  // 🔑 앱을 열 때, 그리고 달을 이동할 때마다 자동으로 동기화
+  useEffect(() => {
+    if (!sheetSyncConfig || syncStatus !== 'connected') return;
+    handleSyncFromGoogleSheet(sheetSyncConfig, year, month);
+  }, [sheetSyncConfig, year, month, syncStatus]);
+
   // 일정 생성 데이터 전송 로직
   const handleAddEventSubmit = async (e) => {
     if (e) e.preventDefault();
@@ -1122,6 +1271,13 @@ export default function App() {
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
             <SideAccordionPanel 
               activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} selectedDate={selectedDate}
+              usefulLinks={usefulLinks} isLinkFormOpen={isLinkFormOpen} setIsLinkFormOpen={setIsLinkFormOpen}
+              linkFormTitle={linkFormTitle} setLinkFormTitle={setLinkFormTitle}
+              linkFormDesc={linkFormDesc} setLinkFormDesc={setLinkFormDesc}
+              linkFormUrl={linkFormUrl} setLinkFormUrl={setLinkFormUrl}
+              editingLinkId={editingLinkId}
+              handleSaveUsefulLink={handleSaveUsefulLink} handleDeleteUsefulLink={handleDeleteUsefulLink}
+              handleStartEditLink={handleStartEditLink} handleStartNewLink={handleStartNewLink}
               activeDayMeal={activeDayMeal} messengerInput={messengerInput} setMessengerInput={setMessengerInput}
               handleAnalyzeMessengerText={handleAnalyzeMessengerText} isAnalyzing={isAnalyzing} parsedProposals={parsedProposals}
               setParsedProposals={setParsedProposals} categories={categories} categoryOrder={categoryOrder} NOTION_PALETTES={NOTION_PALETTES}
@@ -1147,7 +1303,7 @@ export default function App() {
           <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'bookmark' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'salary' ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
           <button type="button" onClick={() => setIsGradesDashboardOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isGradesDashboardOpen ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="학생 성적 대시보드"><BarChart3 className="w-5 h-5" /></button>
-          <button type="button" onClick={() => setIsUsefulLinksOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isUsefulLinksOpen ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="유용한 기능"><Link2 className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'tools' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
         </div>
       </div>
 
@@ -1555,6 +1711,48 @@ export default function App() {
               </div>
             </div>
 
+            <div className="bg-amber-50/50 border border-amber-100 p-3.5 rounded-lg space-y-2">
+              <p className="text-xs font-bold text-amber-900">야자감독 구글시트 자동 동기화</p>
+
+              {isEditingSheetSyncId ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text" placeholder="스프레드시트 ID" value={sheetSyncIdInput}
+                    onChange={(e) => setSheetSyncIdInput(e.target.value)}
+                    className="flex-1 min-w-0 p-2 border border-amber-200 rounded text-xs bg-white focus:outline-none"
+                  />
+                  <button type="button" onClick={handleSaveSheetSyncConfig} className="px-3 py-2 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded shrink-0">저장</button>
+                  {sheetSyncConfig && (
+                    <button type="button" onClick={() => { setSheetSyncIdInput(sheetSyncConfig.spreadsheetId || ''); setIsEditingSheetSyncId(false); }} className="px-2 py-2 border border-amber-300 text-amber-700 text-xs font-bold rounded shrink-0">취소</button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 bg-white border border-amber-200 rounded px-2.5 py-2">
+                  <span className="flex-1 min-w-0 text-xs font-mono text-gray-600 truncate">
+                    {sheetSyncConfig?.spreadsheetId || '등록된 스프레드시트가 없습니다.'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setSheetSyncIdInput(sheetSyncConfig?.spreadsheetId || ''); setIsEditingSheetSyncId(true); }}
+                    className="text-[11px] font-bold text-amber-700 hover:bg-amber-100 px-2 py-1 rounded shrink-0"
+                  >
+                    {sheetSyncConfig ? '수정' : '등록'}
+                  </button>
+                </div>
+              )}
+
+              {sheetSyncConfig && !isEditingSheetSyncId && (
+                <button
+                  type="button"
+                  onClick={() => handleSyncFromGoogleSheet(sheetSyncConfig, year, month)}
+                  disabled={isSyncingSheet}
+                  className="w-full py-1.5 border border-amber-300 text-amber-700 hover:bg-amber-100 disabled:opacity-50 text-xs font-bold rounded"
+                >
+                  {isSyncingSheet ? '동기화 중...' : '지금 새로고침'}
+                </button>
+              )}
+            </div>
+
             <div className="bg-blue-50/50 border border-blue-100 p-3.5 rounded-lg space-y-3">
               <p className="text-xs font-bold text-blue-900">개인 구글 캘린더 연동</p>
               {googleAccountEmail ? (
@@ -1723,56 +1921,6 @@ export default function App() {
       {/* 🔑 [신규] 학생 성적 대시보드 (전체화면 모달) */}
       {isGradesDashboardOpen && <StudentGradesDashboard onClose={handleCloseGradesDashboard} myClassNum={myClassNum} />}
 
-      {/* 🔑 [신규] 유용한 기능 모음 — 외부 도구(구글 시트 등) 링크 모음. 항목은 아래 usefulLinks 배열에 계속 추가 가능 */}
-      {isUsefulLinksOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsUsefulLinksOpen(false)}>
-          <div className="relative bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
-              <h3 className="text-base font-bold text-[#37352F] flex items-center gap-2"><Link2 className="w-5 h-5 text-emerald-600" /> 유용한 기능</h3>
-              <button onClick={() => setIsUsefulLinksOpen(false)} className="p-1 hover:bg-gray-100 rounded" style={{ WebkitAppRegion: 'no-drag' }}><X className="w-5 h-5" /></button>
-            </div>
-
-            <div className="space-y-2">
-              {usefulLinks.length === 0 && !isLinkFormOpen && (
-                <p className="text-xs text-gray-400 text-center py-4">등록된 링크가 없습니다.</p>
-              )}
-              {usefulLinks.map((link) => (
-                <div key={link.id} className="group flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => window.electronAPI?.openExternal ? window.electronAPI.openExternal(link.url) : window.open(link.url, '_blank')}
-                    className="flex-1 min-w-0 flex items-center justify-between p-3 bg-[#F7F7F5] hover:bg-gray-100 rounded-lg border border-[#E9E9E6] text-left transition"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-gray-700 truncate">{link.title}</p>
-                      {link.description && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{link.description}</p>}
-                    </div>
-                    <span className="text-gray-300 text-xs shrink-0 ml-2">열기 ↗</span>
-                  </button>
-                  <button type="button" onClick={() => handleStartEditLink(link)} className="p-1.5 text-gray-300 hover:text-gray-700 hover:bg-gray-100 rounded shrink-0" title="수정"><Edit2 className="w-3.5 h-3.5" /></button>
-                  <button type="button" onClick={() => handleDeleteUsefulLink(link.id)} className="p-1.5 text-gray-300 hover:text-rose-600 hover:bg-rose-50 rounded shrink-0" title="삭제"><Trash2 className="w-3.5 h-3.5" /></button>
-                </div>
-              ))}
-            </div>
-
-            {isLinkFormOpen ? (
-              <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg p-3 space-y-2">
-                <input type="text" placeholder="제목 (예: 선택교과 좌석표 만들기)" value={linkFormTitle} onChange={(e) => setLinkFormTitle(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
-                <input type="text" placeholder="설명 (선택)" value={linkFormDesc} onChange={(e) => setLinkFormDesc(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
-                <input type="text" placeholder="링크 주소 (https://...)" value={linkFormUrl} onChange={(e) => setLinkFormUrl(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
-                <div className="flex gap-2 pt-1">
-                  <button type="button" onClick={() => { setIsLinkFormOpen(false); setEditingLinkId(null); }} className="flex-1 py-1.5 border border-[#E9E9E6] text-gray-600 rounded text-xs font-bold">취소</button>
-                  <button type="button" onClick={handleSaveUsefulLink} className="flex-1 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-xs font-bold">{editingLinkId ? '수정 완료' : '등록'}</button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" onClick={handleStartNewLink} className="w-full py-2 border border-dashed border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                <Plus className="w-3.5 h-3.5" /> 새 링크 추가
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+      </div>
   );
 }
