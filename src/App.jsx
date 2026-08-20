@@ -227,6 +227,7 @@ export default function App() {
   });
 
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryShowAsBadge, setNewCategoryShowAsBadge] = useState(false); // 🔑 [신규] 날짜 옆 배지 표시 여부
   const [selectedPaletteKey, setSelectedPaletteKey] = useState('red');
   const [editingCategoryName, setEditingCategoryName] = useState(null); // 🔑 현재 수정 중인 카테고리의 원래 이름
   const [draggedCategoryName, setDraggedCategoryName] = useState(null); // 🔑 드래그 중인 카테고리명
@@ -825,8 +826,6 @@ export default function App() {
   // 🔑 [신규] 구글시트에서 야자감독 배정표를 읽어와 "야자감독" 캘린더에 자동 반영
   const handleSyncFromGoogleSheet = useCallback(async (config, targetYear, targetMonth) => {
     if (!config || !config.spreadsheetId) return;
-    const targetCal = calendarList.find((c) => c.name === (config.calendarName || '야자감독'));
-    if (!targetCal) return; // 해당 이름의 캘린더가 없으면 조용히 종료
 
     setIsSyncingSheet(true);
     try {
@@ -883,8 +882,9 @@ export default function App() {
         });
       }
 
-      // Firestore에 반영: 이 동기화로 생성된 일정만 안전하게 갱신/정리 (수동 등록 일정은 건드리지 않음)
-      const eventsRef = getEventsCollectionRef(targetCal.id);
+      // 🔑 메인 캘린더("default")에 "야자감독" 카테고리로 저장 → 배지 표시 대상이 됨
+      // 이 동기화로 생성된 일정만 안전하게 갱신/정리 (수동 등록 일정은 건드리지 않음)
+      const eventsRef = getEventsCollectionRef('default');
       const pad = (n) => String(n).padStart(2, '0');
       const seenIds = new Set();
 
@@ -893,8 +893,8 @@ export default function App() {
         const eventId = `sheet-duty-${dateStr}`;
         seenIds.add(eventId);
         await setDoc(doc(eventsRef, eventId), {
-          title: `${teacherName} 선생님`,
-          category: '기타',
+          title: `${teacherName}T`,
+          category: '야자감독',
           manager: teacherName,
           startDate: dateStr,
           endDate: dateStr,
@@ -906,10 +906,13 @@ export default function App() {
       }
 
       // 이번 달에 이 동기화가 예전에 만들었던 일정 중, 지금은 시트에서 사라진 것들 정리
-      const existingSyncedThisMonth = events.filter((ev) =>
-        ev.source === 'sheet-sync' &&
-        ev.startDate && ev.startDate.startsWith(`${targetYear}-${pad(targetMonth + 1)}-`)
-      );
+      // (메인 캘린더를 보고 있을 때만 events에 데이터가 있으므로, currentCalendarId가 'default'일 때만 정확히 정리됨)
+      const existingSyncedThisMonth = currentCalendarId === 'default'
+        ? events.filter((ev) =>
+            ev.source === 'sheet-sync' &&
+            ev.startDate && ev.startDate.startsWith(`${targetYear}-${pad(targetMonth + 1)}-`)
+          )
+        : [];
       for (const ev of existingSyncedThisMonth) {
         if (!seenIds.has(ev.id)) {
           await deleteDoc(doc(eventsRef, ev.id));
@@ -1106,18 +1109,22 @@ export default function App() {
     if (!newCategoryName.trim()) return showToast("카테고리명을 입력해 주세요.", "error");
     const trimmedName = newCategoryName.trim();
 
+    // 🔑 색상 스타일 + 날짜 옆 배지 표시 여부를 함께 저장
+    const stylingWithBadge = { ...NOTION_PALETTES[selectedPaletteKey], showAsBadge: newCategoryShowAsBadge };
+
     if (editingCategoryName) {
       if (trimmedName !== editingCategoryName && categories[trimmedName]) {
         return showToast("이미 존재하는 카테고리입니다.", "error");
       }
 
       const { [editingCategoryName]: oldStyling, ...restCategories } = categories;
-      const updatedCategories = { ...restCategories, [trimmedName]: NOTION_PALETTES[selectedPaletteKey] };
+      const updatedCategories = { ...restCategories, [trimmedName]: stylingWithBadge };
       const updatedOrder = categoryOrder.map(name => name === editingCategoryName ? trimmedName : name);
 
       setCategories(updatedCategories);
       setCategoryOrder(updatedOrder);
       setNewCategoryName('');
+      setNewCategoryShowAsBadge(false);
       setEditingCategoryName(null);
       if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...updatedCategories, __order: updatedOrder });
       showToast("카테고리가 수정되었습니다.", "success");
@@ -1125,9 +1132,9 @@ export default function App() {
     }
 
     if (categories[trimmedName]) return showToast("이미 존재하는 카테고리입니다.", "error");
-    const updatedCategories = { ...categories, [trimmedName]: NOTION_PALETTES[selectedPaletteKey] };
+    const updatedCategories = { ...categories, [trimmedName]: stylingWithBadge };
     const updatedOrder = [...categoryOrder, trimmedName];
-    setCategories(updatedCategories); setCategoryOrder(updatedOrder); setNewCategoryName('');
+    setCategories(updatedCategories); setCategoryOrder(updatedOrder); setNewCategoryName(''); setNewCategoryShowAsBadge(false);
     if (syncStatus === 'connected' && db) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'categories', 'active_list'), { ...updatedCategories, __order: updatedOrder });
     showToast("카테고리가 추가되었습니다.", "success");
   };
@@ -1138,6 +1145,7 @@ export default function App() {
     const matchedPaletteKey = Object.keys(NOTION_PALETTES).find(key => NOTION_PALETTES[key].color === styling.color) || 'red';
     setNewCategoryName(catName);
     setSelectedPaletteKey(matchedPaletteKey);
+    setNewCategoryShowAsBadge(!!styling.showAsBadge);
     setEditingCategoryName(catName);
   };
 
@@ -1145,6 +1153,7 @@ export default function App() {
     setEditingCategoryName(null);
     setNewCategoryName('');
     setSelectedPaletteKey('red');
+    setNewCategoryShowAsBadge(false);
   };
 
   const handleDeleteCategory = async (catName) => {
@@ -1806,6 +1815,16 @@ export default function App() {
                 </div>
               </div>
 
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newCategoryShowAsBadge}
+                  onChange={(e) => setNewCategoryShowAsBadge(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-purple-600"
+                />
+                날짜 숫자 옆에 작은 배지로 표시 (일정 목록에는 안 보임)
+              </label>
+
               <div className="flex gap-2">
                 {editingCategoryName && (
                   <button type="button" onClick={handleCancelCategoryEdit} className="flex-1 py-2 border border-[#E9E9E6] text-gray-600 rounded text-xs font-bold hover:bg-gray-100">취소</button>
@@ -1842,6 +1861,7 @@ export default function App() {
                           <Menu className="w-3.5 h-3.5 text-gray-300 shrink-0 cursor-grab" />
                           <span className={`w-3 h-3 rounded-full ${styling.bg} border ${styling.border} shrink-0`}></span>
                           <span className="text-xs font-semibold text-gray-700 truncate">{catName}</span>
+                          {styling.showAsBadge && <span className="text-[9px] font-bold text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded shrink-0">배지</span>}
                         </div>
                         <button 
                           type="button" 

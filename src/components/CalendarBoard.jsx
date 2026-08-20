@@ -117,6 +117,9 @@ export default React.memo(function CalendarBoard({
   const eventsByDate = useMemo(() => {
     const map = new Map();
     filteredEvents.forEach(event => {
+      // 🔑 "날짜 옆 배지로 표시" 카테고리는 일반 일정 목록에서 제외 (badgeEventsByDate에서 별도 처리)
+      if (categories[event.category]?.showAsBadge) return;
+
       const start = new Date(event.startDate + 'T00:00:00');
       const end = new Date((event.endDate || event.startDate) + 'T00:00:00');
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
@@ -130,7 +133,28 @@ export default React.memo(function CalendarBoard({
       }
     });
     return map;
-  }, [filteredEvents, formatDateString]);
+  }, [filteredEvents, formatDateString, categories]);
+
+  // 🔑 [신규] "날짜 옆 배지로 표시" 카테고리의 일정만 모아 날짜별로 그룹핑
+  const badgeEventsByDate = useMemo(() => {
+    const map = new Map();
+    filteredEvents.forEach(event => {
+      if (!categories[event.category]?.showAsBadge) return;
+
+      const start = new Date(event.startDate + 'T00:00:00');
+      const end = new Date((event.endDate || event.startDate) + 'T00:00:00');
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        const key = formatDateString(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(event);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    });
+    return map;
+  }, [filteredEvents, formatDateString, categories]);
 
   /**
    * 드래그가 시작될 때 이벤트 데이터와 현재 날짜 문자열을 저장합니다.
@@ -455,6 +479,7 @@ export default React.memo(function CalendarBoard({
           const dateStr = formatDateString(year, month, dayNum);
 
           const dayEvents = eventsByDate.get(dateStr) || [];
+          const badgeEvents = badgeEventsByDate.get(dateStr) || []; // 🔑 이 날짜의 배지 표시 일정
 
           // 일관된 순서 로직 통합 적용 (추가 시 무조건 기존 리스트 밑으로 오도록 보장)
           const sortedEvents = sortDayEvents(dayEvents, dateStr);
@@ -481,9 +506,28 @@ export default React.memo(function CalendarBoard({
                 isSelected ? 'bg-slate-50/80' : 'bg-white hover:bg-slate-50/40'
               }`}
             >
-              <div className="flex justify-between items-center shrink-0">
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${isToday ? 'bg-amber-400 text-white' : currentDayOfWeek === 0 ? 'text-rose-500' : currentDayOfWeek === 6 ? 'text-sky-500' : 'text-gray-700'}`}>{dayNum}</span>
-                <button onClick={(e) => { e.stopPropagation(); setNewEvent(prev => ({ ...prev, startDate: dateStr, endDate: dateStr })); setIsAddModalOpen(true); }} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-200 rounded transition"><Plus className="w-3.5 h-3.5 text-gray-500" /></button>
+              <div className="flex justify-between items-center shrink-0 gap-1">
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full shrink-0 ${isToday ? 'bg-amber-400 text-white' : currentDayOfWeek === 0 ? 'text-rose-500' : currentDayOfWeek === 6 ? 'text-sky-500' : 'text-gray-700'}`}>{dayNum}</span>
+
+                <div className="flex items-center gap-1 min-w-0 justify-end">
+                  {badgeEvents.map((bEvent) => {
+                    const bTheme = categories[bEvent.category] || NOTION_PALETTES.gray;
+                    const dotColor = extractHexColor(bTheme.text);
+                    return (
+                      <button
+                        key={bEvent.id}
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setSelectedEvent(bEvent); setIsDetailModalOpen(true); }}
+                        title={bEvent.title}
+                        className="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#F7F7F5] hover:bg-gray-100 border border-[#E9E9E6] truncate max-w-16 transition-colors"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }}></span>
+                        <span className="truncate">{bEvent.title}</span>
+                      </button>
+                    );
+                  })}
+                  <button onClick={(e) => { e.stopPropagation(); setNewEvent(prev => ({ ...prev, startDate: dateStr, endDate: dateStr })); setIsAddModalOpen(true); }} className={`p-0.5 hover:bg-gray-200 rounded transition shrink-0 ${badgeEvents.length > 0 ? 'opacity-0 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100'}`}><Plus className="w-3.5 h-3.5 text-gray-500" /></button>
+                </div>
               </div>
 
               <div data-date={dateStr} className="day-events-container mt-1 flex-1 overflow-y-auto space-y-1 max-h-28 scrollbar-none min-w-0 pb-1">
