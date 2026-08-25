@@ -48,6 +48,21 @@ function convertGrade5to9(g5) {
   return null;
 }
 
+// 🔑 [신규] 역변환: 9등급제 → 5등급제 (같은 표를 g9 기준으로 선형보간)
+function convertGrade9to5(g9) {
+  const a = GRADE_CONV_TABLE;
+  if (g9 <= a[0].g9) return { g5: a[0].g5, pct: a[0].pct };
+  if (g9 >= a[a.length - 1].g9) return { g5: a[a.length - 1].g5, pct: a[a.length - 1].pct };
+  for (let i = 1; i < a.length; i++) {
+    if (g9 <= a[i].g9) {
+      const lo = a[i - 1], hi = a[i];
+      const t = (g9 - lo.g9) / ((hi.g9 - lo.g9) || 1); // 🔑 구간 폭이 0(평평한 구간)이면 하한값으로 고정
+      return { g5: lo.g5 + (hi.g5 - lo.g5) * t, pct: lo.pct + (hi.pct - lo.pct) * t };
+    }
+  }
+  return null;
+}
+
 export default React.memo(function SideAccordionPanel({
   activeSidePanel, setActiveSidePanel, selectedDate, activeDayMeal,
   messengerInput, setMessengerInput, handleAnalyzeMessengerText, isAnalyzing, parsedProposals,
@@ -75,7 +90,8 @@ export default React.memo(function SideAccordionPanel({
   const [editingCell, setEditingCell] = useState(null); 
   const [cellInputValue, setCellInputValue] = useState('');
   const [isManageListOpen, setIsManageListOpen] = useState(false); // 🔑 등록된 시간표 관리 목록 펼침 상태
-  const [gradeConvInput, setGradeConvInput] = useState('3.00'); // 🔑 [신규] 5→9등급 환산 계산기 입력값
+  const [gradeConvInput, setGradeConvInput] = useState('3.00'); // 🔑 등급 환산 계산기 입력값
+  const [gradeConvMode, setGradeConvMode] = useState('5to9'); // 🔑 [신규] '5to9' 또는 '9to5'
 
   useEffect(() => {
     const classes = Object.keys(customTimetables.classes || {});
@@ -1229,37 +1245,58 @@ export default React.memo(function SideAccordionPanel({
         {activeSidePanel === 'gradeConv' && (
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
-              <div className="p-1.5 bg-teal-50 text-teal-700 rounded-lg"><Calculator className="w-4 h-4" /></div>
+              <div className="p-1.5 bg-rose-50 text-rose-700 rounded-lg"><Calculator className="w-4 h-4" /></div>
               <div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-gray-700">등급 환산 계산기</h3>
               </div>
             </div>
 
-            {/* 🔑 5등급제 → 9등급제 환산 계산기 */}
+            {/* 🔑 5등급제 ↔ 9등급제 환산 계산기 (정방향/역방향 전환 가능) */}
             {(() => {
-              const g5Val = parseFloat(gradeConvInput);
-              const isValid = !isNaN(g5Val) && g5Val >= 1 && g5Val <= 5;
-              const result = isValid ? convertGrade5to9(g5Val) : null;
+              const isForward = gradeConvMode === '5to9';
+              const inputVal = parseFloat(gradeConvInput);
+              const range = isForward ? [1, 5] : [1, 9];
+              const isValid = !isNaN(inputVal) && inputVal >= range[0] && inputVal <= range[1];
+              const result = isValid ? (isForward ? convertGrade5to9(inputVal) : convertGrade9to5(inputVal)) : null;
+
+              const switchMode = (mode) => {
+                setGradeConvMode(mode);
+                setGradeConvInput(mode === '5to9' ? '3.00' : '5.00'); // 🔑 전환 시 기본값도 그 범위에 맞게 초기화
+              };
+
               return (
                 <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-xl p-3.5 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-bold text-gray-600">5등급제 → 9등급제 환산</p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button" onClick={() => switchMode('5to9')}
+                      className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-colors border ${isForward ? 'bg-rose-700 text-white border-rose-700' : 'bg-white text-gray-500 border-[#E9E9E6] hover:bg-gray-50'}`}
+                    >
+                      5등급제 → 9등급제
+                    </button>
+                    <button
+                      type="button" onClick={() => switchMode('9to5')}
+                      className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-colors border ${!isForward ? 'bg-rose-700 text-white border-rose-700' : 'bg-white text-gray-500 border-[#E9E9E6] hover:bg-gray-50'}`}
+                    >
+                      9등급제 → 5등급제
+                    </button>
                   </div>
+
                   <div className="flex items-center gap-2">
                     <input
-                      type="number" step="0.01" min="1" max="5"
+                      type="number" step="0.01" min={range[0]} max={range[1]}
                       value={gradeConvInput}
                       onChange={(e) => setGradeConvInput(e.target.value)}
-                      placeholder="1.00 ~ 5.00"
-                      className="w-24 p-2 border border-[#E9E9E6] rounded-md bg-white text-sm font-bold text-center focus:outline-none focus:ring-1 focus:ring-teal-400"
+                      placeholder={`${range[0].toFixed(2)} ~ ${range[1].toFixed(2)}`}
+                      className="w-24 p-2 border border-[#E9E9E6] rounded-md bg-white text-sm font-bold text-center focus:outline-none focus:ring-1 focus:ring-rose-400"
                     />
-                    <span className="text-xs text-gray-400">등급 (5등급제)</span>
+                    <span className="text-xs text-gray-400">등급 ({isForward ? '5등급제' : '9등급제'})</span>
                   </div>
+
                   {result ? (
                     <div className="flex items-center gap-2 bg-white border border-[#E9E9E6] rounded-md px-3 py-2">
                       <div className="flex-1">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">환산 등급</p>
-                        <p className="text-lg font-black text-teal-700">{result.g9.toFixed(2)}</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">환산 등급 ({isForward ? '9등급제' : '5등급제'})</p>
+                        <p className="text-lg font-black text-rose-700">{(isForward ? result.g9 : result.g5).toFixed(2)}</p>
                       </div>
                       <div className="w-px h-8 bg-[#E9E9E6]"></div>
                       <div className="flex-1">
@@ -1268,7 +1305,7 @@ export default React.memo(function SideAccordionPanel({
                       </div>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-gray-400 text-center py-1.5">1.00 ~ 5.00 사이 값을 입력해주세요.</p>
+                    <p className="text-[11px] text-gray-400 text-center py-1.5">{range[0].toFixed(2)} ~ {range[1].toFixed(2)} 사이 값을 입력해주세요.</p>
                   )}
                 </div>
               );
