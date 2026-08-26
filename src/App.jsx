@@ -257,7 +257,8 @@ export default function App() {
     schoolCode: import.meta.env.VITE_NEIS_SCHOOL_CODE 
   };
   const [meals, setMeals] = useState({});
-  const [activeSidePanel, setActiveSidePanel] = useState(null);
+  const [activeSidePanel, setActiveSidePanel] = useState([]); // 🔑 [수정] 여러 패널 동시에 열 수 있도록 배열로 변경
+  const MAX_OPEN_SIDE_PANELS = 3;
 
   // 🌟 [추가 상태] 실시간으로 공유될 전역 교사/학급 시간표 통합 매트릭스 원격 상태 선언
   const [customTimetables, setCustomTimetables] = useState({ classes: {}, teachers: {} });
@@ -598,7 +599,19 @@ export default function App() {
   const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
   const handleToday = () => { setCurrentDate(new Date()); setSelectedDate(new Date()); };
-  const toggleSidePanel = (panelName) => setActiveSidePanel(activeSidePanel === panelName ? null : panelName);
+  const toggleSidePanel = (panelName) => {
+    setActiveSidePanel(prev => {
+      if (prev.includes(panelName)) return prev.filter(p => p !== panelName);
+      if (prev.length >= MAX_OPEN_SIDE_PANELS) {
+        showToast(`패널은 최대 ${MAX_OPEN_SIDE_PANELS}개까지 열 수 있습니다.`, "error");
+        return prev;
+      }
+      return [...prev, panelName];
+    });
+  };
+
+  // 🔑 [신규] 개별 패널만 닫는 헬퍼 (각 카드의 X 버튼에서 사용)
+  const closeSidePanel = (panelName) => setActiveSidePanel(prev => prev.filter(p => p !== panelName));
 
   // 🔑 [신규] 캘린더 생성/삭제/전환
   const handleCreateCalendar = async () => {
@@ -1263,7 +1276,7 @@ export default function App() {
               daysInMonth={daysInMonth} filteredEvents={filteredEvents} categories={displayCategories} NOTION_PALETTES={NOTION_PALETTES}
               extractHexColor={extractHexColor} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setNewEvent={setNewEvent}
               setIsAddModalOpen={setIsAddModalOpen} setSelectedEvent={setSelectedEvent} setIsDetailModalOpen={setIsDetailModalOpen}
-              formatDateString={formatDateString} activeSidePanel={activeSidePanel}
+              formatDateString={formatDateString} activeSidePanel={activeSidePanel.length > 0}
               onEventOrderChange={handleEventOrderPreview}
               onEventOrderCommit={handleEventOrderCommit}
               calendarList={calendarList} currentCalendarId={currentCalendarId}
@@ -1280,7 +1293,7 @@ export default function App() {
             <div className="sticky top-3.5 self-start">
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
             <SideAccordionPanel 
-              activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} selectedDate={selectedDate}
+              activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} closeSidePanel={closeSidePanel} selectedDate={selectedDate}
               usefulLinks={usefulLinks} isLinkFormOpen={isLinkFormOpen} setIsLinkFormOpen={setIsLinkFormOpen}
               linkFormTitle={linkFormTitle} setLinkFormTitle={setLinkFormTitle}
               linkFormDesc={linkFormDesc} setLinkFormDesc={setLinkFormDesc}
@@ -1307,14 +1320,14 @@ export default function App() {
 
         {/* 최우측 레이아웃 인덱스 네비게이션 */}
         <div className="w-14 bg-white border-l border-[#E9E9E6] flex flex-col items-center py-4 justify-start gap-5 z-40 shrink-0 window-no-drag shadow-xs">
-          <button type="button" onClick={() => toggleSidePanel('meal')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'meal' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Utensils className="w-5 h-5" /></button>
-          <button type="button" onClick={() => toggleSidePanel('timetable')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'timetable' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><CalendarIcon className="w-5 h-5" /></button>
-          <button type="button" onClick={() => toggleSidePanel('ai')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'ai' ? 'bg-purple-50 border-purple-200 text-purple-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Sparkles className="w-5 h-5" /></button>
-          <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'bookmark' ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
-          <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'salary' ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('meal')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('meal') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Utensils className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('timetable')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('timetable') ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><CalendarIcon className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('ai')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('ai') ? 'bg-purple-50 border-purple-200 text-purple-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Sparkles className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('bookmark') ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('salary') ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
           <button type="button" onClick={() => setIsGradesDashboardOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isGradesDashboardOpen ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="학생 성적 대시보드"><BarChart3 className="w-5 h-5" /></button>
-          <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'tools' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
-          <button type="button" onClick={() => toggleSidePanel('gradeConv')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel === 'gradeConv' ? 'bg-rose-50 border-rose-200 text-rose-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="등급 환산 계산기"><Calculator className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('tools') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('gradeConv')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('gradeConv') ? 'bg-rose-50 border-rose-200 text-rose-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="등급 환산 계산기"><Calculator className="w-5 h-5" /></button>
         </div>
       </div>
 

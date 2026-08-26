@@ -64,7 +64,7 @@ function convertGrade9to5(g9) {
 }
 
 export default React.memo(function SideAccordionPanel({
-  activeSidePanel, setActiveSidePanel, selectedDate, activeDayMeal,
+  activeSidePanel, setActiveSidePanel, closeSidePanel, selectedDate, activeDayMeal,
   messengerInput, setMessengerInput, handleAnalyzeMessengerText, isAnalyzing, parsedProposals,
   setParsedProposals, categories, categoryOrder, NOTION_PALETTES, activeProposalCatDropdownId,
   setActiveProposalCatDropdownId, handleUpdateProposalCategory, handleAddSingleProposalCard, handleEditProposal,
@@ -90,6 +90,9 @@ export default React.memo(function SideAccordionPanel({
   const [editingCell, setEditingCell] = useState(null); 
   const [cellInputValue, setCellInputValue] = useState('');
   const [isManageListOpen, setIsManageListOpen] = useState(false); // 🔑 등록된 시간표 관리 목록 펼침 상태
+  const [isUploadGuideOpen, setIsUploadGuideOpen] = useState(false); // 🔑 양식 다운로드/엑셀 등록/안내 모달
+  const [isClassDropdownOpen, setIsClassDropdownOpen] = useState(false); // 🔑 [신규] 학급 커스텀 드롭다운
+  const [isTeacherDropdownOpen, setIsTeacherDropdownOpen] = useState(false); // 🔑 [신규] 교사 커스텀 드롭다운
   const [gradeConvInput, setGradeConvInput] = useState('3.00'); // 🔑 등급 환산 계산기 입력값
   const [gradeConvMode, setGradeConvMode] = useState('5to9'); // 🔑 [신규] '5to9' 또는 '9to5'
 
@@ -122,7 +125,7 @@ export default React.memo(function SideAccordionPanel({
   }, [customTimetables, myClassNum, myTeacherName]);
 
   useEffect(() => {
-    if (activeSidePanel !== 'timetable') return;
+    if (!activeSidePanel.includes('timetable')) return;
 
     const checkCurrentPeriodAndDay = () => {
       const now = new Date();
@@ -166,7 +169,7 @@ export default React.memo(function SideAccordionPanel({
 
   // 급여 탭이 열려있을 때만 1초마다 갱신 (다른 탭 볼 땐 불필요한 타이머 안 돌림)
   useEffect(() => {
-    if (activeSidePanel !== 'salary') return;
+    if (!activeSidePanel.includes('salary')) return;
     const timer = setInterval(() => setNowTick(new Date()), 1000);
     return () => clearInterval(timer);
   }, [activeSidePanel]);
@@ -276,7 +279,7 @@ export default React.memo(function SideAccordionPanel({
     return () => { if (rollAnimRef.current) cancelAnimationFrame(rollAnimRef.current); };
   }, [salaryStats?.earned]);
 
-  if (!activeSidePanel) return null;
+  if (!activeSidePanel || activeSidePanel.length === 0) return null;
 
   /**
    * 특정 셀의 텍스트가 수정 완료되었을 때 상위 App.jsx를 거쳐 파이어베이스 원격 문서로 일괄 업데이트 진행
@@ -602,25 +605,25 @@ export default React.memo(function SideAccordionPanel({
     return numA - numB;
   });
   const teacherList = Object.keys(customTimetables.teachers || {}).sort((a, b) => a.localeCompare(b, 'ko')); // 🔑 가나다순 정렬
+  // 🔑 [신규] 각 패널 카드마다 쓰이는 공통 닫기 버튼
+  const PanelCloseButton = ({ panelName }) => (
+    <button 
+      onClick={() => closeSidePanel(panelName)} 
+      className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-all z-10"
+    >
+      <X className="w-4 h-4" />
+    </button>
+  );
+
   const hasClasses = classList.length > 0;
   const hasTeachers = teacherList.length > 0;
 
   return (
-    <aside 
-      className={`xl:col-span-1 w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 transition-all animate-in fade-in slide-in-from-top-2 duration-200 ${
-        activeSidePanel === 'timetable' ? 'xl:min-h-197.5 max-h-220' : 'h-fit'
-      }`}
-    >
-      <button 
-        onClick={() => setActiveSidePanel(null)} 
-        className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-all z-10"
-      >
-        <X className="w-4 h-4" />
-      </button>
+    <div className="xl:col-span-1 w-full min-w-0 flex flex-col gap-3">
 
-      <div className="text-xs">
-        
-        {activeSidePanel === 'timetable' && (
+        {activeSidePanel.includes('timetable') && (
+          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 max-h-220 animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+            <PanelCloseButton panelName="timetable" />
           <div className="space-y-4 font-sans flex flex-col flex-1 justify-between">
             <div className="space-y-3 flex-1">
               <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -683,13 +686,13 @@ export default React.memo(function SideAccordionPanel({
 
               <div className="grid grid-cols-2 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg shrink-0">
                 <button 
-                  onClick={() => { setTimetableTab('class'); setEditingCell(null); }} 
+                  onClick={() => { setTimetableTab('class'); setEditingCell(null); setIsClassDropdownOpen(false); setIsTeacherDropdownOpen(false); }} 
                   className={`py-1.5 text-center font-bold rounded-md flex items-center justify-center gap-1 transition-colors duration-150 ${timetableTab === 'class' ? 'bg-white text-[#37352F] shadow-xs border border-[#E9E9E6]' : 'border border-transparent text-gray-400 hover:text-gray-700'}`}
                 >
                   <Users className="w-3.5 h-3.5" /> 반별 시간표
                 </button>
                 <button 
-                  onClick={() => { setTimetableTab('teacher'); setEditingCell(null); }} 
+                  onClick={() => { setTimetableTab('teacher'); setEditingCell(null); setIsClassDropdownOpen(false); setIsTeacherDropdownOpen(false); }} 
                   className={`py-1.5 text-center font-bold rounded-md flex items-center justify-center gap-1 transition-colors duration-150 ${timetableTab === 'teacher' ? 'bg-white text-[#37352F] shadow-xs border border-[#E9E9E6]' : 'border border-transparent text-gray-400 hover:text-gray-700'}`}
                 >
                   <User className="w-3.5 h-3.5" /> 교사별 시간표
@@ -698,53 +701,73 @@ export default React.memo(function SideAccordionPanel({
 
               {timetableTab === 'class' ? (
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">등록/선택된 학급 리스트</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">등록/선택된 학급</label>
                   {hasClasses ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {classList.map(c => (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => { setSelectedClass(c); setEditingCell(null); }}
-                          className={`w-14 h-9 shrink-0 rounded-md text-xs font-bold transition-colors border truncate px-1 ${
-                            selectedClass === c
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'bg-[#F7F7F5] text-gray-600 border-[#E9E9E6] hover:bg-gray-100'
-                          }`}
-                        >
-                          {c}
-                        </button>
-                      ))}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsClassDropdownOpen(!isClassDropdownOpen)}
+                        className="w-full flex items-center justify-between p-2 border border-[#E9E9E6] bg-[#F7F7F5] hover:bg-gray-100 rounded-md font-bold text-gray-700 text-xs focus:outline-none transition-colors"
+                      >
+                        <span>{selectedClass || '반 선택'}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isClassDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isClassDropdownOpen && (
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                          {classList.map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => { setSelectedClass(c); setEditingCell(null); setIsClassDropdownOpen(false); }}
+                              className={`w-full px-3 py-2 text-left text-xs font-semibold border-b border-gray-50 last:border-0 transition-colors ${
+                                selectedClass === c ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-[#F7F7F5]'
+                              }`}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center py-2.5 px-3 border border-dashed border-gray-200 rounded-lg text-gray-400 font-medium bg-[#F7F7F5]/30 text-[11px]">
-                      하단에서 반별 시간표 엑셀 파일을 등록해주세요.
+                      하단 <Info className="w-3 h-3 inline -mt-0.5" /> 안내를 참고해 시간표를 등록해주세요.
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">등록/선택된 교사 리스트</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">등록/선택된 교사</label>
                   {hasTeachers ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {teacherList.map(t => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => { setSelectedTeacher(t); setEditingCell(null); }}
-                          className={`w-16 h-9 shrink-0 rounded-md text-xs font-bold transition-colors border truncate px-1 ${
-                            selectedTeacher === t
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'bg-[#F7F7F5] text-gray-600 border-[#E9E9E6] hover:bg-gray-100'
-                          }`}
-                        >
-                          {t}
-                        </button>
-                      ))}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsTeacherDropdownOpen(!isTeacherDropdownOpen)}
+                        className="w-full flex items-center justify-between p-2 border border-[#E9E9E6] bg-[#F7F7F5] hover:bg-gray-100 rounded-md font-bold text-gray-700 text-xs focus:outline-none transition-colors"
+                      >
+                        <span>{selectedTeacher || '교사 선택'}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isTeacherDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isTeacherDropdownOpen && (
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-[#E9E9E6] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                          {teacherList.map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => { setSelectedTeacher(t); setEditingCell(null); setIsTeacherDropdownOpen(false); }}
+                              className={`w-full px-3 py-2 text-left text-xs font-semibold border-b border-gray-50 last:border-0 transition-colors ${
+                                selectedTeacher === t ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-[#F7F7F5]'
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center py-2.5 px-3 border border-dashed border-gray-200 rounded-lg text-gray-400 font-medium bg-[#F7F7F5]/30 text-[11px]">
-                      하단에서 교사별 시간표 엑셀 파일을 등록해주세요.
+                      하단 <Info className="w-3 h-3 inline -mt-0.5" /> 안내를 참고해 시간표를 등록해주세요.
                     </div>
                   )}
                 </div>
@@ -850,43 +873,64 @@ export default React.memo(function SideAccordionPanel({
               </div>
             </div>
 
-            <div className="mt-2 space-y-2 shrink-0">
-              <div className="grid grid-cols-2 gap-2 bg-[#F7F7F5]/50 border border-[#E9E9E6] rounded-xl p-2.5">
-                <button 
-                  onClick={downloadExcelTemplate}
-                  className="py-2 px-3 border border-[#E9E9E6] bg-white text-gray-700 hover:bg-gray-50 rounded-lg flex items-center justify-center gap-1.5 font-bold text-[11px] shadow-2xs transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5 text-blue-600" /> 양식 다운로드
-                </button>
-                
-                <label className="py-2 px-3 border border-blue-200 bg-blue-50/20 text-blue-700 hover:bg-blue-50/50 rounded-lg flex items-center justify-center gap-1.5 font-bold text-[11px] shadow-2xs cursor-pointer text-center transition-colors">
-                  <Upload className="w-3.5 h-3.5" /> 엑셀 파일 등록
-                  <input 
-                    type="file" 
-                    accept=".xlsx, .xls" 
-                    onChange={handleExcelUpload} 
-                    className="hidden" 
-                />
-                </label>
-              </div>
-
-              <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-xl p-3 space-y-1.5 text-gray-600 leading-normal relative">
-                <p className="font-extrabold text-gray-800 text-[11px] flex items-center gap-1">
-                  <span className="flex items-center gap-1"><Info className="w-3.5 h-3.5 text-blue-500 shrink-0" /> 시간표 등록 방법 안내</span>
-                </p>
-                <ol className="list-decimal list-inside space-y-0.5 text-[10px] font-medium text-gray-500">
-                  <li><span className="font-bold text-gray-700">'양식 다운로드'</span>로 템플릿 파일을 다운로드합니다.</li>
-                  <li>엑셀 파일명을 <span className="font-bold text-blue-600">등록될 이름(예: 2-3, 홍길동)</span>으로 변경합니다.</li>
-                  <li>양식 규격(반별은 과목명 단일행, 교사별은 과목/반 2줄행)에 맞게 기입 후 저장합니다.</li>
-                  <li><span className="font-bold text-gray-700">'엑셀 파일 등록'</span> 버튼으로 업로드하면 목록에 동적 추가됩니다!</li>
-                </ol>
-              </div>
+            <div className="mt-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsUploadGuideOpen(true)}
+                className="w-full py-2 px-3 border border-[#E9E9E6] bg-[#F7F7F5]/50 hover:bg-[#F7F7F5] text-gray-600 rounded-lg flex items-center justify-center gap-1.5 font-bold text-[11px] transition-colors"
+              >
+                <Info className="w-3.5 h-3.5 text-blue-500" /> 시간표 등록 방법 / 엑셀 업로드
+              </button>
             </div>
+
+            {/* 🔑 [신규] 양식 다운로드 / 엑셀 등록 / 안내를 모달로 이동 */}
+            {isUploadGuideOpen && (
+              <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsUploadGuideOpen(false)}>
+                <div className="relative bg-white border border-[#E9E9E6] rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between border-b border-[#E9E9E6] pb-3">
+                    <h3 className="text-sm font-bold text-[#37352F] flex items-center gap-2"><Info className="w-4 h-4 text-blue-500" /> 시간표 등록 방법</h3>
+                    <button onClick={() => setIsUploadGuideOpen(false)} className="p-1 hover:bg-gray-100 rounded" style={{ WebkitAppRegion: 'no-drag' }}><X className="w-4 h-4" /></button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={downloadExcelTemplate}
+                      className="py-2 px-3 border border-[#E9E9E6] bg-white text-gray-700 hover:bg-gray-50 rounded-lg flex items-center justify-center gap-1.5 font-bold text-[11px] shadow-2xs transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-600" /> 양식 다운로드
+                    </button>
+
+                    <label className="py-2 px-3 border border-blue-200 bg-blue-50/20 text-blue-700 hover:bg-blue-50/50 rounded-lg flex items-center justify-center gap-1.5 font-bold text-[11px] shadow-2xs cursor-pointer text-center transition-colors">
+                      <Upload className="w-3.5 h-3.5" /> 엑셀 파일 등록
+                      <input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        onChange={(e) => { handleExcelUpload(e); setIsUploadGuideOpen(false); }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-xl p-3 space-y-1.5 text-gray-600 leading-normal">
+                    <p className="font-extrabold text-gray-800 text-[11px]">등록 방법 안내</p>
+                    <ol className="list-decimal list-inside space-y-0.5 text-[10px] font-medium text-gray-500">
+                      <li><span className="font-bold text-gray-700">'양식 다운로드'</span>로 템플릿 파일을 다운로드합니다.</li>
+                      <li>엑셀 파일명을 <span className="font-bold text-blue-600">등록될 이름(예: 2-3, 홍길동)</span>으로 변경합니다.</li>
+                      <li>양식 규격(반별은 과목명 단일행, 교사별은 과목/반 2줄행)에 맞게 기입 후 저장합니다.</li>
+                      <li><span className="font-bold text-gray-700">'엑셀 파일 등록'</span> 버튼으로 업로드하면 목록에 동적 추가됩니다!</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
+          </aside>
         )}
 
-        {activeSidePanel === 'meal' && (
-          <div className="space-y-3">
+        {activeSidePanel.includes('meal') && (
+          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+            <PanelCloseButton panelName="meal" />
+            <div className="space-y-3">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
               <div className="p-1.5 bg-emerald-50 text-emerald-700 rounded-lg"><Utensils className="w-4 h-4" /></div>
               <div>
@@ -895,22 +939,22 @@ export default React.memo(function SideAccordionPanel({
             </div>
 
             {activeDayMeal && (activeDayMeal.lunch || activeDayMeal.dinner) ? (
-              <div className="space-y-3 animate-in fade-in duration-200">
+              <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
                 {activeDayMeal.lunch ? (
                   <div className="space-y-1">
                     <div className="text-[11px] font-black text-emerald-800 bg-emerald-50 px-2 py-0.5 inline-block rounded border border-emerald-100">☀️ 중식 구성</div>
                     <div className="bg-[#F7F7F5] p-2.5 rounded-lg border border-gray-100 text-xs text-gray-700 font-semibold whitespace-pre-wrap leading-relaxed">{activeDayMeal.lunch.diet}</div>
                     <p className="text-[9px] text-right text-gray-400 font-bold">열량: {activeDayMeal.lunch.calories}</p>
                   </div>
-                ) : ( <p className="text-[10px] text-gray-400 italic bg-gray-50/60 p-2 rounded text-center border border-dashed">중식 미운영 일자</p> )}
+                ) : ( <p className="text-[10px] text-gray-400 italic bg-gray-50/60 p-2 rounded text-center border border-dashed self-start">중식 미운영 일자</p> )}
 
                 {activeDayMeal.dinner ? (
-                  <div className="space-y-1 pt-1 border-t border-gray-100 border-dashed">
+                  <div className="space-y-1">
                     <div className="text-[11px] font-black text-amber-800 bg-amber-50 px-2 py-0.5 inline-block rounded border border-amber-100">🌙 석식 구성</div>
                     <div className="bg-[#F7F7F5] p-2.5 rounded-lg border border-gray-100 text-xs text-gray-700 font-semibold whitespace-pre-wrap leading-relaxed">{activeDayMeal.dinner.diet}</div>
                     <p className="text-[9px] text-right text-gray-400 font-bold">열량: {activeDayMeal.dinner.calories}</p>
                   </div>
-                ) : ( <p className="text-[10px] text-gray-400 italic bg-gray-50/60 p-2 rounded text-center border border-dashed">석식 미운영 일자</p> )}
+                ) : ( <p className="text-[10px] text-gray-400 italic bg-gray-50/60 p-2 rounded text-center border border-dashed self-start">석식 미운영 일자</p> )}
               </div>
             ) : ( <p className="text-xs text-gray-400 italic text-center py-5 bg-[#F7F7F5]/40 rounded-lg border border-dashed border-gray-200">지정된 급식 정보가 존재하지 않습니다.</p> )}
 
@@ -962,9 +1006,12 @@ export default React.memo(function SideAccordionPanel({
               );
             })()}
           </div>
+          </aside>
         )}
 
-        {activeSidePanel === 'ai' && (
+        {activeSidePanel.includes('ai') && (
+          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+            <PanelCloseButton panelName="ai" />
           <div className="space-y-4">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
               <div className="p-1.5 bg-purple-50 text-purple-700 rounded-lg animate-pulse"><Sparkles className="w-4 h-4" /></div>
@@ -1082,9 +1129,12 @@ export default React.memo(function SideAccordionPanel({
               </div>
             )}
           </div>
+          </aside>
         )}
 
-        {activeSidePanel === 'bookmark' && (
+        {activeSidePanel.includes('bookmark') && (
+          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+            <PanelCloseButton panelName="bookmark" />
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
               <div className="p-1.5 bg-blue-50 text-blue-700 rounded-lg"><Bookmark className="w-4 h-4" /></div>
@@ -1135,10 +1185,12 @@ export default React.memo(function SideAccordionPanel({
               <button type="submit" className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm">북마크 추가</button>
             </form>
           </div>
+          </aside>
         )}
 
-        {/* ==================== 5. 시급 누적 패널 ==================== */}
-        {activeSidePanel === 'salary' && (
+        {activeSidePanel.includes('salary') && (
+          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+            <PanelCloseButton panelName="salary" />
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
               <div className="p-1.5 bg-amber-50 text-amber-700 rounded-lg"><Wallet className="w-4 h-4" /></div>
@@ -1239,10 +1291,12 @@ export default React.memo(function SideAccordionPanel({
               <p>· 본봉(세전, 수당 제외) 기준의 재미용 참고 수치입니다.</p>
             </div>
           </div>
+          </aside>
         )}
 
-        {/* ==================== 6. 등급 환산 계산기 패널 ==================== */}
-        {activeSidePanel === 'gradeConv' && (
+        {activeSidePanel.includes('gradeConv') && (
+          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+            <PanelCloseButton panelName="gradeConv" />
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
               <div className="p-1.5 bg-rose-50 text-rose-700 rounded-lg"><Calculator className="w-4 h-4" /></div>
@@ -1311,10 +1365,12 @@ export default React.memo(function SideAccordionPanel({
               );
             })()}
           </div>
+          </aside>
         )}
 
-        {/* ==================== 7. 공유 도구함 패널 ==================== */}
-        {activeSidePanel === 'tools' && (
+        {activeSidePanel.includes('tools') && (
+          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+            <PanelCloseButton panelName="tools" />
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
               <div className="p-1.5 bg-emerald-50 text-emerald-700 rounded-lg"><Link2 className="w-4 h-4" /></div>
@@ -1362,9 +1418,9 @@ export default React.memo(function SideAccordionPanel({
               </button>
             )}
           </div>
+          </aside>
         )}
 
-      </div>
-    </aside>
+    </div>
   );
 });
