@@ -140,13 +140,14 @@ export default React.memo(function SideAccordionPanel({
 
       setHighlightDayIdx(day - 1);
 
-      if (minutes >= 510 && minutes <= 560) setCurrentPeriod(1);
-      else if (minutes >= 570 && minutes <= 620) setCurrentPeriod(2);
-      else if (minutes >= 630 && minutes <= 680) setCurrentPeriod(3);
-      else if (minutes >= 690 && minutes <= 740) setCurrentPeriod(4);
-      else if (minutes >= 805 && minutes <= 855) setCurrentPeriod(5);
-      else if (minutes >= 865 && minutes <= 915) setCurrentPeriod(6);
-      else if (minutes >= 925 && minutes <= 975) setCurrentPeriod(7);
+      // 🔑 쉬는시간/점심시간까지 포함해서 다음 교시 시작 전까지 해당 교시로 인식
+      if (minutes >= 510 && minutes < 570) setCurrentPeriod(1);       // 1교시 8:30~9:30
+      else if (minutes >= 570 && minutes < 630) setCurrentPeriod(2);  // 2교시 9:30~10:30
+      else if (minutes >= 630 && minutes < 690) setCurrentPeriod(3);  // 3교시 10:30~11:30
+      else if (minutes >= 690 && minutes < 805) setCurrentPeriod(4);  // 4교시 11:30~13:25 (점심시간 포함)
+      else if (minutes >= 805 && minutes < 865) setCurrentPeriod(5);  // 5교시 13:25~14:25
+      else if (minutes >= 865 && minutes < 925) setCurrentPeriod(6);  // 6교시 14:25~15:25
+      else if (minutes >= 925 && minutes < 985) setCurrentPeriod(7);  // 7교시 15:25~16:25
       else {
         setCurrentPeriod(0);
       }
