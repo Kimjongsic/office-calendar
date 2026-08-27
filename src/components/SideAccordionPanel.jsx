@@ -622,7 +622,7 @@ export default React.memo(function SideAccordionPanel({
     <div className="xl:col-span-1 w-full min-w-0 flex flex-col gap-3">
 
         {activeSidePanel.includes('timetable') && (
-          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 max-h-220 animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+          <aside style={{ order: activeSidePanel.indexOf('timetable') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 max-h-220 animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
             <PanelCloseButton panelName="timetable" />
           <div className="space-y-4 font-sans flex flex-col flex-1 justify-between">
             <div className="space-y-3 flex-1">
@@ -633,7 +633,15 @@ export default React.memo(function SideAccordionPanel({
                 </div>
               </div>
 
-              {/* 🔑 X 버튼과 동일한 absolute top-3 기준으로 위치를 맞춤 (X 버튼 바로 왼쪽) */}
+              {/* 🔑 X 버튼과 동일한 absolute top-3 기준으로 위치를 맞춤 (X 버튼 왼쪽으로 나란히) */}
+              <button
+                type="button"
+                onClick={() => setIsUploadGuideOpen(true)}
+                className="absolute top-3 right-17 p-1 rounded-md transition-all z-10 text-gray-400 hover:text-gray-800 hover:bg-gray-100"
+                title="시간표 등록 방법 / 엑셀 업로드"
+              >
+                <Info className="w-4 h-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => setIsManageListOpen(!isManageListOpen)}
@@ -873,16 +881,6 @@ export default React.memo(function SideAccordionPanel({
               </div>
             </div>
 
-            <div className="mt-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsUploadGuideOpen(true)}
-                className="w-full py-2 px-3 border border-[#E9E9E6] bg-[#F7F7F5]/50 hover:bg-[#F7F7F5] text-gray-600 rounded-lg flex items-center justify-center gap-1.5 font-bold text-[11px] transition-colors"
-              >
-                <Info className="w-3.5 h-3.5 text-blue-500" /> 시간표 등록 방법 / 엑셀 업로드
-              </button>
-            </div>
-
             {/* 🔑 [신규] 양식 다운로드 / 엑셀 등록 / 안내를 모달로 이동 */}
             {isUploadGuideOpen && (
               <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsUploadGuideOpen(false)}>
@@ -928,7 +926,7 @@ export default React.memo(function SideAccordionPanel({
         )}
 
         {activeSidePanel.includes('meal') && (
-          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+          <aside style={{ order: activeSidePanel.indexOf('meal') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
             <PanelCloseButton panelName="meal" />
             <div className="space-y-3">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -1010,7 +1008,7 @@ export default React.memo(function SideAccordionPanel({
         )}
 
         {activeSidePanel.includes('ai') && (
-          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+          <aside style={{ order: activeSidePanel.indexOf('ai') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
             <PanelCloseButton panelName="ai" />
           <div className="space-y-4">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -1133,7 +1131,7 @@ export default React.memo(function SideAccordionPanel({
         )}
 
         {activeSidePanel.includes('bookmark') && (
-          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+          <aside style={{ order: activeSidePanel.indexOf('bookmark') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
             <PanelCloseButton panelName="bookmark" />
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -1189,7 +1187,7 @@ export default React.memo(function SideAccordionPanel({
         )}
 
         {activeSidePanel.includes('salary') && (
-          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+          <aside style={{ order: activeSidePanel.indexOf('salary') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
             <PanelCloseButton panelName="salary" />
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -1295,7 +1293,7 @@ export default React.memo(function SideAccordionPanel({
         )}
 
         {activeSidePanel.includes('gradeConv') && (
-          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+          <aside style={{ order: activeSidePanel.indexOf('gradeConv') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
             <PanelCloseButton panelName="gradeConv" />
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
@@ -1369,7 +1367,7 @@ export default React.memo(function SideAccordionPanel({
         )}
 
         {activeSidePanel.includes('tools') && (
-          <aside className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+          <aside style={{ order: activeSidePanel.indexOf('tools') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
             <PanelCloseButton panelName="tools" />
           <div className="space-y-4 animate-in fade-in duration-200">
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
