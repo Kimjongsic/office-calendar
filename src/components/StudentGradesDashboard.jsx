@@ -1,5 +1,5 @@
 // src/components/StudentGradesDashboard.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
   Line, ComposedChart, XAxis, YAxis, CartesianGrid,
@@ -20,6 +20,80 @@ const SUBJECT_COLORS = {
 };
 // 🔑 업로드된 엑셀에 실제 존재하는 시트(회차)만 사용. 이 배열은 정렬 기준으로만 참고.
 const MOCK_SESSION_ORDER = ["25년 3월", "25년 6월", "25년 9월", "25년 10월", "26년 3월", "26년 6월", "26년 9월", "26년 10월"];
+
+// 🔑 [신규] "성적 설계기" — 이수 예정 과목 목록 (학교 교육과정 기준, 성적반영 여부 포함)
+const PLANNED_CURRICULUM = {
+  "2학년 2학기": {
+    "공통": [
+      { name: "화법과 언어", credit: 4, subject: "국어", counted: true },
+      { name: "미적분Ⅰ", credit: 4, subject: "수학", counted: true },
+      { name: "영어Ⅱ", credit: 4, subject: "영어", counted: true },
+      { name: "체육2", credit: 2, subject: "체육", counted: false },
+    ],
+    "택1 (국영수예사)": [
+      { name: "주제탐구독서", credit: 3, subject: "국어", counted: true },
+      { name: "기하", credit: 3, subject: "수학", counted: true },
+      { name: "미디어영어", credit: 3, subject: "영어", counted: true },
+      { name: "미술창작", credit: 3, subject: "예술", counted: false },
+      { name: "기후변화와 지속가능한 세계", credit: 3, subject: "사회", counted: false },
+    ],
+    "택3 (사회/과학)": [
+      { name: "한국지리 탐구", credit: 3, subject: "사회", counted: true },
+      { name: "법과 사회", credit: 3, subject: "사회", counted: true },
+      { name: "동아시아 역사 기행", credit: 3, subject: "사회", counted: true },
+      { name: "윤리와 사상", credit: 3, subject: "사회", counted: true },
+      { name: "역학과 에너지", credit: 3, subject: "과학", counted: true },
+      { name: "물질과 에너지", credit: 3, subject: "과학", counted: true },
+      { name: "세포와 물질대사", credit: 3, subject: "과학", counted: true },
+      { name: "지구시스템과학", credit: 3, subject: "과학", counted: true },
+      { name: "지구과학", credit: 3, subject: "과학", counted: true },
+    ],
+    "택1 (제2외국어/한문)": [
+      { name: "언어생활과 한자", credit: 3, subject: "제2외국어/한문", counted: true },
+      { name: "일본어 회화", credit: 3, subject: "제2외국어/한문", counted: true },
+      { name: "중국문화", credit: 3, subject: "제2외국어/한문", counted: true },
+    ],
+  },
+  "3학년 1학기": {
+    "공통": [
+      { name: "독서와 작문", credit: 4, subject: "국어", counted: true },
+      { name: "영어 독해와 작문", credit: 4, subject: "영어", counted: true },
+      { name: "실용통계", credit: 3, subject: "수학", counted: true },
+      { name: "스포츠생활", credit: 2, subject: "체육", counted: false },
+    ],
+    "택1 (국수영/외국어)": [
+      { name: "문학과 영상", credit: 3, subject: "국어", counted: true },
+      { name: "미적분Ⅱ", credit: 3, subject: "수학", counted: true },
+      { name: "경제수학", credit: 3, subject: "수학", counted: true },
+      { name: "인공지능수학", credit: 3, subject: "수학", counted: true },
+      { name: "세계문화와 영어", credit: 3, subject: "영어", counted: true },
+      { name: "일본문화", credit: 3, subject: "제2외국어/한문", counted: true },
+      { name: "한문 고전 읽기", credit: 3, subject: "제2외국어/한문", counted: true },
+    ],
+    "택3 (사회/과학)": [
+      { name: "도시의미래탐구", credit: 3, subject: "사회", counted: true },
+      { name: "정치", credit: 3, subject: "사회", counted: true },
+      { name: "역사로 탐구하는 현대세계", credit: 3, subject: "사회", counted: false },
+      { name: "인문학과 윤리", credit: 3, subject: "사회", counted: true },
+      { name: "전자기와 양자", credit: 3, subject: "과학", counted: true },
+      { name: "화학반응의 세계", credit: 3, subject: "과학", counted: true },
+      { name: "생물의 유전", credit: 3, subject: "과학", counted: true },
+      { name: "행성우주과학", credit: 3, subject: "과학", counted: true },
+      { name: "역학과 에너지", credit: 3, subject: "과학", counted: true },
+      { name: "물질과 에너지", credit: 3, subject: "과학", counted: true },
+      { name: "세포와 물질대사", credit: 3, subject: "과학", counted: true },
+      { name: "지구시스템과학", credit: 3, subject: "과학", counted: true },
+      { name: "융합과학탐구", credit: 3, subject: "과학", counted: false },
+    ],
+    "택1 (교양/예술)": [
+      { name: "논술", credit: 2, subject: "교양", counted: false },
+      { name: "지역과 시민", credit: 2, subject: "교양", counted: false },
+      { name: "보건", credit: 2, subject: "교양", counted: false },
+      { name: "심리학", credit: 2, subject: "교양", counted: false },
+      { name: "미술감상과 비평", credit: 2, subject: "예술", counted: false },
+    ],
+  },
+};
 const STORAGE_KEY = "student_grades_uploaded"; // 🔑 이 PC에만 저장 (다른 선생님과 공유 안 됨)
 
 function emptyStudent(sessions) {
@@ -401,7 +475,46 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
 
   // 🔑 [신규] Electron의 실제 렌더러로 인쇄 → PDF 생성 (oklch 등 최신 CSS도 100% 정상 처리됨)
   // 모달 외 나머지 화면(캘린더 등)을 전부 잠깐 숨겨서, 결과적으로 모달만 캡처된 것과 동일한 효과를 냄
-  const [isSavingPdf, setIsSavingPdf] = useState(false);
+  const [isSavingPdf, setIsSavingPdf] = useState(false); // 🔑 PDF 저장 진행 상태
+  const [isDesignerOpen, setIsDesignerOpen] = useState(false); // 🔑 [신규] 성적 설계기 모달
+  const [selectedPastCourses, setSelectedPastCourses] = useState(new Set()); // 🔑 이수과목 중 선택된 것 (key: term|courseName)
+  const [selectedPlannedCourses, setSelectedPlannedCourses] = useState({}); // 🔑 예정과목 선택 { courseName: {credit, subject} }
+  const [plannedGrades, setPlannedGrades] = useState({}); // 🔑 예정과목별 입력한 예상 등급 { courseName: '3' }
+
+  // 🔑 [수정] 훅은 early return보다 반드시 위에 있어야 하므로, uploaded/classNum/studentNum만으로 안전하게 계산
+  const ALL_TERMS = useMemo(() => {
+    if (!uploaded) return [];
+    return collectTerms(uploaded);
+  }, [uploaded]);
+
+  const designerResult = useMemo(() => {
+    if (!uploaded || classNum === null) return null;
+    const classMap = uploaded[classNum] || {};
+    const nums = Object.keys(classMap).map(Number).sort((a, b) => a - b);
+    const effectiveNum = nums.includes(studentNum) ? studentNum : nums[0];
+    const sData = classMap[effectiveNum];
+    if (!sData) return null;
+
+    const entries = [];
+    ALL_TERMS.forEach((term) => {
+      SUBJECTS.forEach((subj) => {
+        ((sData.school[subj] || {})[term] || []).forEach((e) => {
+          if (e.hasGrade && selectedPastCourses.has(`${term}|${e.courseName}`)) {
+            entries.push({ grade: e.grade, credit: e.credit });
+          }
+        });
+      });
+    });
+    Object.entries(selectedPlannedCourses).forEach(([name, info]) => {
+      const g = parseFloat(plannedGrades[name]);
+      if (!isNaN(g) && g >= 1 && g <= 5) entries.push({ grade: g, credit: info.credit });
+    });
+    if (entries.length === 0) return null;
+    const creditSum = entries.reduce((a, e) => a + e.credit, 0);
+    if (!creditSum) return null;
+    const avg = entries.reduce((a, e) => a + e.grade * e.credit, 0) / creditSum;
+    return { avg, creditSum, count: entries.length };
+  }, [uploaded, classNum, studentNum, ALL_TERMS, selectedPastCourses, selectedPlannedCourses, plannedGrades]);
 
   const handlePrintPdf = async () => {
     console.log('PDF 저장 시작 - 코드 버전 확인용 로그'); // 🔑 [임시 디버깅용]
@@ -585,8 +698,8 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
   const studentData = uploadedClassMap[effectiveStudentNum];
   const size = studentNumbers.length;
   const classNumbers = Object.keys(uploaded).map(Number).sort((a, b) => a - b);
-  const ALL_TERMS = collectTerms(uploaded);
-
+  // 🔑 전체 데이터(모든 반/학생)를 훑는 무거운 계산이라, uploaded가 바뀔 때만 다시 계산하도록 캐싱
+  // (입력창에 글자를 칠 때마다 매번 다시 도는 걸 방지 — 체감 지연의 주요 원인이었음)
   // 🔑 [신규] 이름으로 전체 반을 대상으로 검색 (반 2자리 + 관계없이 전체)
   const searchResults = searchQuery.trim()
     ? classNumbers.flatMap((cls) => {
@@ -645,6 +758,58 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
   const top2Items = top2.map((c) => ({ label: c.label, value: c.grade }));
   const top3Items = top3.map((c) => ({ label: c.label, value: c.grade }));
   const fourItems = candidates.map((c) => ({ label: c.label, value: c.grade }));
+
+  // 🔑 [신규] 성적 설계기 — 이수과목 목록 전체를 대상으로 열기
+  const handleOpenDesigner = () => {
+    const initialSet = new Set();
+    ALL_TERMS.forEach((term) => {
+      SUBJECTS.forEach((subj) => {
+        ((studentData.school[subj] || {})[term] || []).forEach((entry) => {
+          if (entry.hasGrade) initialSet.add(`${term}|${entry.courseName}`);
+        });
+      });
+    });
+    setSelectedPastCourses(initialSet);
+    setSelectedPlannedCourses({});
+    setPlannedGrades({});
+    setIsDesignerOpen(true);
+  };
+
+  // 🔑 이수과목 선택/해제 토글
+  const togglePastCourse = (term, courseName) => {
+    const key = `${term}|${courseName}`;
+    setSelectedPastCourses((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  // 🔑 예정과목 선택/해제 토글 — 같은 그룹(택N) 안에서는 최대 N개까지만 선택 가능
+  const togglePlannedCourse = (course, groupLabel, groupCourseNames, maxPick) => {
+    setSelectedPlannedCourses((prev) => {
+      const next = { ...prev };
+      if (next[course.name]) {
+        delete next[course.name];
+        setPlannedGrades((g) => { const ng = { ...g }; delete ng[course.name]; return ng; });
+        return next;
+      }
+
+      const currentPickedInGroup = groupCourseNames.filter((n) => next[n]).length;
+      if (maxPick && currentPickedInGroup >= maxPick) {
+        return prev; // 🔑 제한 초과 시 변경 없이 그대로 유지 (체크박스가 disabled 처리되어 있어 보통 여기 도달하지 않음)
+      }
+
+      next[course.name] = { credit: course.credit, subject: course.subject };
+      return next;
+    });
+  };
+
+  // 🔑 그룹 라벨(예: "택1 (국영수예사)")에서 선택 가능 개수를 추출 ("택1"→1, "택3"→3, 없으면 무제한)
+  const extractMaxPick = (groupLabel) => {
+    const m = /택(\d+)/.exec(groupLabel);
+    return m ? parseInt(m[1], 10) : null;
+  };
 
   return (
     <div id="grades-modal-overlay" className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
@@ -732,10 +897,13 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
             </div>
 
             <div className="no-capture" style={{ display: "flex", gap: "10px" }}>
-              <button onClick={handlePrintPdf} disabled={isSavingPdf} style={{ ...btnStyle, height: "36px", boxSizing: "border-box", background: "#2a78d6", color: "#fff", border: "1px solid #2a78d6" }}>
+              <button onClick={handleOpenDesigner} style={{ ...btnStyle, background: "#7c3aed", color: "#fff", border: "1px solid #7c3aed" }}>
+                성적 설계기
+              </button>
+              <button onClick={handlePrintPdf} disabled={isSavingPdf} style={{ ...btnStyle, background: "#2a78d6", color: "#fff", border: "1px solid #2a78d6" }}>
                 {isSavingPdf ? '저장 중...' : 'PDF로 저장'}
               </button>
-              <button onClick={() => { clearStorage(); setUploadError(""); }} style={{ ...btnStyle, height: "36px", boxSizing: "border-box" }}>
+              <button onClick={() => { clearStorage(); setUploadError(""); }} style={btnStyle}>
                 저장된 데이터 삭제
               </button>
             </div>
@@ -967,12 +1135,129 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
           <p style={{ fontSize: "12px", color: "#9AA0A8", margin: 0 }}>
             이 데이터는 이 컴퓨터에만 저장되며 다른 선생님에게는 공유되지 않습니다.
           </p>
-          {/* 🔑 [신규] 스크롤을 끝까지 내렸을 때도 어떤 학생인지 알 수 있도록 하단에 다시 표시 */}
+          {/* 🔑 스크롤을 끝까지 내렸을 때도 어떤 학생인지 알 수 있도록 하단에 다시 표시 */}
           <p style={{ fontSize: "13px", fontWeight: 700, color: "#1F3A5F", margin: 0 }}>
             {classNum}반 {effectiveStudentNum}번{studentData.name ? ` ${studentData.name}` : ""}
           </p>
         </div>
       </div>
+
+      {/* 🔑 [신규] 성적 설계기 모달 */}
+      {isDesignerOpen && (() => {
+        const result = designerResult;
+        return (
+          <div className="fixed inset-0 z-60 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsDesignerOpen(false)}>
+            <div
+              className="relative bg-[#F5F6F8] rounded-xl shadow-2xl w-full max-w-3xl my-4 p-6 max-h-[90vh] overflow-y-auto"
+              style={{ fontFamily: "-apple-system, 'Malgun Gothic', sans-serif" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#1F3A5F", margin: 0 }}>성적 설계기</h2>
+                <button onClick={() => setIsDesignerOpen(false)} style={{ ...btnStyle, padding: "6px 10px" }}>닫기</button>
+              </div>
+              <p style={{ fontSize: "12px", color: "#6B7280", margin: "0 0 16px" }}>
+                과목을 선택하고, 이수 예정 과목은 예상 등급을 입력해 원하는 조합의 평균 등급을 계산해보세요. 이 계산 결과는 저장되지 않습니다.
+              </p>
+
+              {/* 이수한 과목 (기존 성적, 등급 있는 것만) */}
+              <div style={{ background: "#FFFFFF", border: "1px solid #E2E5EA", borderRadius: "12px", padding: "16px", marginBottom: "14px" }}>
+                <p style={{ fontSize: "14px", fontWeight: 700, color: "#1F3A5F", margin: "0 0 10px" }}>이수한 과목 (1학년 1학기 ~ 2학년 1학기)</p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px" }}>
+                  {ALL_TERMS.map((term) => {
+                    const lines = [];
+                    SUBJECTS.forEach((subj) => {
+                      ((studentData.school[subj] || {})[term] || []).forEach((entry) => {
+                        if (entry.hasGrade) lines.push({ subj, entry });
+                      });
+                    });
+                    if (lines.length === 0) return null;
+                    return (
+                      <div key={term}>
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#1F3A5F", marginBottom: "6px" }}>{term}</div>
+                        {lines.map(({ subj, entry }, i) => {
+                          const key = `${term}|${entry.courseName}`;
+                          const checked = selectedPastCourses.has(key);
+                          return (
+                            <label key={i} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#374151", padding: "3px 0", cursor: "pointer" }}>
+                              <input type="checkbox" checked={checked} onChange={() => togglePastCourse(term, entry.courseName)} />
+                              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: SUBJECT_COLORS[subj], flexShrink: 0 }} />
+                              <span style={{ flex: 1 }}>{entry.courseName}</span>
+                              <span style={{ color: "#9AA0A8" }}>{entry.grade}등급 · {entry.credit}단위</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 이수 예정 과목 */}
+              {Object.entries(PLANNED_CURRICULUM).map(([termLabel, groups]) => (
+                <div key={termLabel} style={{ background: "#FFFFFF", border: "1px solid #E2E5EA", borderRadius: "12px", padding: "16px", marginBottom: "14px" }}>
+                  <p style={{ fontSize: "14px", fontWeight: 700, color: "#1F3A5F", margin: "0 0 10px" }}>{termLabel} (이수 예정)</p>
+                  {Object.entries(groups).map(([groupLabel, courses]) => {
+                    const maxPick = extractMaxPick(groupLabel);
+                    const groupCourseNames = courses.map((c) => c.name);
+                    const pickedCount = groupCourseNames.filter((n) => selectedPlannedCourses[n]).length;
+                    return (
+                      <div key={groupLabel} style={{ marginBottom: "10px" }}>
+                        <p style={{ fontSize: "11px", fontWeight: 700, color: "#9AA0A8", margin: "0 0 4px" }}>
+                          {groupLabel}
+                          {maxPick && <span style={{ marginLeft: "6px", color: pickedCount >= maxPick ? "#7c3aed" : "#B0B5BD" }}>({pickedCount}/{maxPick} 선택됨)</span>}
+                        </p>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {courses.map((course) => {
+                            const isSelected = !!selectedPlannedCourses[course.name];
+                            const isDisabled = !isSelected && maxPick && pickedCount >= maxPick;
+                            return (
+                              <div key={course.name} style={{
+                                display: "flex", alignItems: "center", gap: "6px", padding: "4px 8px", borderRadius: "8px",
+                                border: `1px solid ${isSelected ? "#7c3aed" : "#E2E5EA"}`,
+                                background: isSelected ? "#F5F0FF" : isDisabled ? "#F3F4F6" : "#FAFBFC",
+                                opacity: isDisabled ? 0.5 : 1,
+                              }}>
+                                <label style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11.5px", fontWeight: 600, color: course.counted ? "#374151" : "#B0B5BD", cursor: isDisabled ? "not-allowed" : "pointer" }}>
+                                  <input
+                                    type="checkbox" checked={isSelected} disabled={isDisabled}
+                                    onChange={() => togglePlannedCourse(course, groupLabel, groupCourseNames, maxPick)}
+                                  />
+                                  {course.name} ({course.credit}단위){!course.counted && " · 미반영"}
+                                </label>
+                                {isSelected && course.counted && (
+                                  <input
+                                    type="number" min="1" max="5" step="0.1" placeholder="등급"
+                                    value={plannedGrades[course.name] || ""}
+                                    onChange={(e) => setPlannedGrades((prev) => ({ ...prev, [course.name]: e.target.value }))}
+                                    style={{ width: "44px", padding: "2px 4px", border: "1px solid #E2E5EA", borderRadius: "4px", fontSize: "11px", textAlign: "center" }}
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+
+              {/* 결과 */}
+              <div style={{ background: "#1F3A5F", borderRadius: "12px", padding: "18px", textAlign: "center", position: "sticky", bottom: 0 }}>
+                {result ? (
+                  <>
+                    <p style={{ fontSize: "11px", color: "#A9C0DE", margin: "0 0 4px", fontWeight: 700 }}>선택된 {result.count}과목 · 총 {result.creditSum}단위 기준 평균</p>
+                    <p style={{ fontSize: "32px", fontWeight: 800, color: "#FFFFFF", margin: 0 }}>{result.avg.toFixed(2)}등급</p>
+                  </>
+                ) : (
+                  <p style={{ fontSize: "13px", color: "#A9C0DE", margin: 0 }}>과목을 선택하고 예상 등급을 입력해주세요.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
