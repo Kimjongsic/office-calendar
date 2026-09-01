@@ -1,6 +1,6 @@
 // src/components/CalendarBoard.jsx
 import React, { useState, useRef, useMemo, useLayoutEffect } from 'react';
-import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X, Calendar as CalendarIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Settings, Plus, CalendarDays, Menu, X, Layers, Calendar as CalendarIcon } from 'lucide-react';
 
 export default React.memo(function CalendarBoard({
   year, month, handlePrevMonth, handleToday, handleNextMonth, setIsCategoryManageOpen,
@@ -12,6 +12,7 @@ export default React.memo(function CalendarBoard({
   calendarList, currentCalendarId, isCalendarSwitcherOpen, setIsCalendarSwitcherOpen,
   newCalendarName, setNewCalendarName, newCalendarIsPersonal, setNewCalendarIsPersonal,
   handleCreateCalendar, handleDeleteCalendarEntry, handleSwitchCalendar,
+  isCalendarPickerOpen, setIsCalendarPickerOpen, overlayCalendarIds, setOverlayCalendarIds, getCalendarMeta, personalCalendarList,
   googleAccountEmail, handleSwitchToGoogleCalendar,
   onEventDateMove
 }) {
@@ -305,8 +306,18 @@ export default React.memo(function CalendarBoard({
         style={{ 
           backgroundColor: cardBgColor, 
           color: textColor, 
-          borderColor: cardBgColor, 
-          cursor: isMultiDay ? 'pointer' : 'grab'
+          cursor: isMultiDay ? 'pointer' : 'grab',
+          // 🔑 borderColor(축약형)를 아예 안 쓰고, 4면을 전부 개별 속성으로 고정
+          // → 겹쳐보기 모드가 켜지고 꺼져도 스타일 속성 구성이 항상 동일해서 리액트 경고가 발생하지 않음
+          borderTopColor: cardBgColor,
+          borderRightColor: cardBgColor,
+          borderBottomColor: cardBgColor,
+          borderLeftColor: event._calId ? getCalendarMeta(event._calId).color : cardBgColor,
+          borderTopWidth: '1px',
+          borderRightWidth: '1px',
+          borderBottomWidth: '1px',
+          borderLeftWidth: event._calId ? '4px' : '1px',
+          borderStyle: 'solid',
         }}
         title={event.title}
       >
@@ -341,12 +352,17 @@ export default React.memo(function CalendarBoard({
 
           {/* 🔑 [신규] 캘린더 선택 탭 */}
           <div className="flex items-center gap-1 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg flex-wrap">
-            {calendarList.map((cal) => (
+            {calendarList.map((cal) => {
+              // 🔑 겹쳐보기 모드일 땐 선택된 캘린더 전부를, 아니면 현재 보고 있는 캘린더 하나만 활성 표시
+              const isActive = overlayCalendarIds.length > 0
+                ? overlayCalendarIds.includes(cal.id)
+                : cal.id === currentCalendarId;
+              return (
               <div key={cal.id} className="relative group/tab shrink-0">
                 <button
                   type="button"
                   onClick={() => handleSwitchCalendar(cal.id)}
-                  className={`px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap transition-colors duration-150 ${cal.id === currentCalendarId ? 'bg-white text-[#37352F] shadow-xs border border-[#E9E9E6]' : 'border border-transparent text-gray-400 hover:text-gray-700'}`}
+                  className={`px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap transition-colors duration-150 ${isActive ? 'bg-white text-[#37352F] shadow-xs border border-[#E9E9E6]' : 'border border-transparent text-gray-400 hover:text-gray-700'}`}
                 >
                   <CalendarIcon className="w-3.5 h-3.5" /> {cal.name} {cal.isPersonal && <span title="개인 캘린더" style={{ fontSize: '10px' }}>🔒</span>}
                 </button>
@@ -361,7 +377,8 @@ export default React.memo(function CalendarBoard({
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
 
             {/* 🔑 개인 전용 구글 캘린더 탭 — 연동됐을 때만 표시 (연동은 설정 모달에서) */}
             {googleAccountEmail && (
@@ -374,6 +391,46 @@ export default React.memo(function CalendarBoard({
                 <GoogleLogoIcon /> 내 구글 캘린더
               </button>
             )}
+
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsCalendarPickerOpen(!isCalendarPickerOpen)}
+                className={`px-2 py-1.5 rounded-md transition ${overlayCalendarIds.length > 0 ? 'text-blue-600 bg-white shadow-xs' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`}
+                title="여러 캘린더 겹쳐보기"
+              >
+                <Layers className="w-3.5 h-3.5" />
+              </button>
+              {isCalendarPickerOpen && (
+                <div className="absolute left-0 mt-1 w-56 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-2.5 space-y-1.5">
+                  <p className="text-[10px] font-bold text-gray-400 px-1">겹쳐볼 캘린더 선택</p>
+                  {calendarList.map((cal) => (
+                    <label key={cal.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={overlayCalendarIds.includes(cal.id)}
+                        onChange={(e) => {
+                          setOverlayCalendarIds((prev) =>
+                            e.target.checked ? [...prev, cal.id] : prev.filter((id) => id !== cal.id)
+                          );
+                        }}
+                      />
+                      <span className="text-xs font-semibold text-gray-700">{cal.name}</span>
+                      {cal.isPersonal && <span style={{ fontSize: '10px' }}>🔒</span>}
+                    </label>
+                  ))}
+                  {overlayCalendarIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { setOverlayCalendarIds([]); setIsCalendarPickerOpen(false); }}
+                      className="w-full mt-1 py-1.5 border border-[#E9E9E6] text-gray-500 hover:bg-gray-50 rounded text-[11px] font-bold"
+                    >
+                      겹쳐보기 끄기
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="relative shrink-0">
               <button

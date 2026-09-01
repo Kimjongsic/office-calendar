@@ -41,7 +41,9 @@ import {
   BarChart3,
   Link2,
   Edit2,
-  Calculator
+  Calculator,
+  Layers,
+  StickyNote
 } from 'lucide-react';
 
 import DashboardHeader from './components/DashboardHeader';
@@ -175,6 +177,16 @@ export default function App() {
   const [currentCalendarId, setCurrentCalendarId] = useState('default');
   const [newCalendarIsPersonal, setNewCalendarIsPersonal] = useState(false); // 🔑 [신규] 생성 시 공유/개인 선택
   const isPersonalCalendarId = (id) => personalCalendarList.some((c) => c.id === id); // 🔑 [신규]
+  const [isCalendarPickerOpen, setIsCalendarPickerOpen] = useState(false); // 🔑 [신규] 겹쳐보기 선택 팝업
+  const [overlayCalendarIds, setOverlayCalendarIds] = useState([]); // 🔑 겹쳐보기 선택된 캘린더 id 목록 (비어있으면 일반 모드)
+  const [addEventTargetCalendarId, setAddEventTargetCalendarId] = useState(''); // 🔑 [신규] 겹쳐보기 모드에서 새 일정을 등록할 캘린더 선택
+  const OVERLAY_COLORS = ['#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#EF4444', '#14B8A6'];
+  const getCalendarMeta = (calId) => {
+    const idx = overlayCalendarIds.indexOf(calId);
+    const all = [...calendarList, ...personalCalendarList];
+    const cal = all.find((c) => c.id === calId);
+    return { name: cal?.name || '캘린더', color: OVERLAY_COLORS[idx % OVERLAY_COLORS.length] };
+  };
 
   // 🔑 [신규] 개인 캘린더의 일정 목록을 localStorage에 저장 + 화면 상태(events)도 함께 갱신
   const savePersonalCalendarEvents = (calendarId, updatedEvents) => {
@@ -291,6 +303,14 @@ export default function App() {
   const [linkFormDesc, setLinkFormDesc] = useState('');
   const [linkFormUrl, setLinkFormUrl] = useState('');
   const [isLinkFormOpen, setIsLinkFormOpen] = useState(false);
+
+  // 🔑 [신규] 공유 메모장 — 전교 공유, 실시간 동기화
+  const [sharedMemos, setSharedMemos] = useState([]);
+  const [isMemoFormOpen, setIsMemoFormOpen] = useState(false);
+  const [editingMemoId, setEditingMemoId] = useState(null);
+  const [memoFormTitle, setMemoFormTitle] = useState('');
+  const [memoFormContent, setMemoFormContent] = useState('');
+  const [memoFormColor, setMemoFormColor] = useState('yellow');
   // 🔑 [신규] 담임반/본인 이름 — 시간표·성적분석에서 자동 선택용 (이 PC에만 저장)
   const [myClassNum, setMyClassNum] = useState(() => localStorage.getItem('my_class_num') || '');
   const [myTeacherName, setMyTeacherName] = useState(() => localStorage.getItem('my_teacher_name') || '');
@@ -417,9 +437,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (overlayCalendarIds.length > 0) return; // 🔑 [신규] 겹쳐보기 모드면 아래 별도 이펙트가 처리
     if (currentCalendarId === 'google') return; // 🔑 구글 캘린더는 별도 이펙트에서 처리
 
-    // 🔑 [신규] 개인 캘린더면 Firestore 대신 이 컴퓨터에 저장된 데이터를 사용
+    // 🔑 개인 캘린더면 Firestore 대신 이 컴퓨터에 저장된 데이터를 사용
     if (isPersonalCalendarId(currentCalendarId)) {
       try {
         const saved = localStorage.getItem(`personal_calendar_events_${currentCalendarId}`);
@@ -435,15 +456,75 @@ export default function App() {
       const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
       setEvents(items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
     });
-  }, [syncStatus, currentCalendarId, personalCalendarList]);
+  }, [syncStatus, currentCalendarId, personalCalendarList, overlayCalendarIds]);
 
-  // 🔑 [신규] 유용한 기능 링크 — 전교 공유, 실시간 동기화
+  // 🔑 [신규] 일정 등록 모달이 열릴 때, 겹쳐보기 모드면 기본 선택 캘린더를 첫 번째 것으로 세팅
+  useEffect(() => {
+    if (isAddModalOpen && overlayCalendarIds.length > 0 && !addEventTargetCalendarId) {
+      setAddEventTargetCalendarId(overlayCalendarIds[0]);
+    }
+  }, [isAddModalOpen, overlayCalendarIds]);
+
+  // 🔑 겹쳐보기 모드 — 선택된 여러 캘린더의 일정을 동시에 구독해서 하나로 합침
+  useEffect(() => {
+    if (overlayCalendarIds.length === 0) return;
+
+    const sharedIds = overlayCalendarIds.filter((id) => !isPersonalCalendarId(id) && id !== 'google');
+    const personalIds = overlayCalendarIds.filter((id) => isPersonalCalendarId(id));
+
+    const sharedEventsMap = {};
+    const personalEventsMap = {};
+
+    const applyMerge = () => {
+      const merged = [
+        ...Object.entries(sharedEventsMap).flatMap(([calId, evs]) => evs.map((e) => ({ ...e, _calId: calId }))),
+        ...Object.entries(personalEventsMap).flatMap(([calId, evs]) => evs.map((e) => ({ ...e, _calId: calId }))),
+      ];
+      setEvents(merged);
+    };
+
+    personalIds.forEach((calId) => {
+      try {
+        const saved = localStorage.getItem(`personal_calendar_events_${calId}`);
+        personalEventsMap[calId] = saved ? JSON.parse(saved) : [];
+      } catch (e) {
+        personalEventsMap[calId] = [];
+      }
+    });
+    applyMerge();
+
+    if (syncStatus !== 'connected' || !db) return;
+
+    const unsubscribes = sharedIds.map((calId) =>
+      onSnapshot(getEventsCollectionRef(calId), (snapshot) => {
+        const items = [];
+        snapshot.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
+        sharedEventsMap[calId] = items;
+        applyMerge();
+      })
+    );
+
+    return () => unsubscribes.forEach((unsub) => unsub());
+  }, [overlayCalendarIds, syncStatus, personalCalendarList]);
+
+  // 🔑 유용한 기능 링크 — 전교 공유, 실시간 동기화
   useEffect(() => {
     if (syncStatus !== 'connected' || !db) return;
     const linksRef = collection(db, 'artifacts', appId, 'public', 'data', 'usefulLinks');
     return onSnapshot(linksRef, (snapshot) => {
       const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
       setUsefulLinks(items.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')));
+    });
+  }, [syncStatus]);
+
+  // 🔑 [신규] 공유 메모장 — 전교 공유, 실시간 동기화
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    const memosRef = collection(db, 'artifacts', appId, 'public', 'data', 'sharedMemos');
+    return onSnapshot(memosRef, (snapshot) => {
+      const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
+      // 🔑 sortOrder가 있으면 그 순서대로, 없으면(예전 데이터) 최신순으로 뒤에 배치
+      setSharedMemos(items.sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999)));
     });
   }, [syncStatus]);
 
@@ -775,6 +856,7 @@ export default function App() {
   const handleCloseAddModal = () => {
     setIsAddModalOpen(false);
     setEditingProposalId(null);
+    setAddEventTargetCalendarId(''); // 🔑 [신규]
     setNewEvent({ title: '', category: Object.keys(categories)[0] || '기타', manager: '', startDate: '', endDate: '', startTime: '', endTime: '', location: '', applyMethod: '', applyCount: '', memo: '' });
   };
 
@@ -874,6 +956,69 @@ export default function App() {
     setEditingLinkId(null);
     setLinkFormTitle(''); setLinkFormDesc(''); setLinkFormUrl('');
     setIsLinkFormOpen(true);
+  };
+
+  // 🔑 [신규] 공유 메모장 등록/수정
+  const handleSaveMemo = async () => {
+    const title = memoFormTitle.trim();
+    if (!title) return showToast("제목을 입력해 주세요.", "error");
+
+    if (syncStatus === 'connected' && db) {
+      const memosRef = collection(db, 'artifacts', appId, 'public', 'data', 'sharedMemos');
+
+      if (editingMemoId) {
+        const payload = { title, content: memoFormContent.trim(), color: memoFormColor };
+        await setDoc(doc(memosRef, editingMemoId), payload, { merge: true });
+      } else {
+        // 🔑 새 메모는 맨 앞(순서 0)에 삽입, 기존 메모들은 순서를 한 칸씩 뒤로 밀어줌
+        const batch = writeBatch(db);
+        sharedMemos.forEach((memo, idx) => {
+          batch.update(doc(memosRef, memo.id), { sortOrder: idx + 1 });
+        });
+        const newMemoRef = doc(memosRef);
+        batch.set(newMemoRef, {
+          title, content: memoFormContent.trim(), color: memoFormColor,
+          createdAt: new Date().toISOString(), sortOrder: 0,
+        });
+        await batch.commit();
+      }
+    }
+    setMemoFormTitle(''); setMemoFormContent(''); setMemoFormColor('yellow'); setEditingMemoId(null); setIsMemoFormOpen(false);
+    showToast(editingMemoId ? "메모가 수정되었습니다." : "메모가 등록되었습니다.", "success");
+  };
+
+  const handleDeleteMemo = async (id) => {
+    if (!window.confirm("이 메모를 삭제할까요?")) return;
+    if (syncStatus === 'connected' && db) {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', id));
+    }
+  };
+
+  const handleStartEditMemo = (memo) => {
+    setEditingMemoId(memo.id);
+    setMemoFormTitle(memo.title);
+    setMemoFormContent(memo.content || '');
+    setMemoFormColor(memo.color || 'yellow');
+    setIsMemoFormOpen(true);
+  };
+
+  const handleStartNewMemo = () => {
+    setEditingMemoId(null);
+    setMemoFormTitle(''); setMemoFormContent(''); setMemoFormColor('yellow');
+    setIsMemoFormOpen(true);
+  };
+
+  // 🔑 [신규] 메모 드래그 순서 변경 — 드롭된 시점에 새 순서를 Firestore에 반영
+  const handleReorderMemos = async (reorderedMemos) => {
+    setSharedMemos(reorderedMemos); // 🔑 즉시 화면 반영 (낙관적 업데이트)
+    if (syncStatus === 'connected' && db) {
+      const memosRef = collection(db, 'artifacts', appId, 'public', 'data', 'sharedMemos');
+      const batch = writeBatch(db);
+      reorderedMemos.forEach((memo, idx) => {
+        batch.update(doc(memosRef, memo.id), { sortOrder: idx });
+      });
+      await batch.commit();
+    }
   };
 
   // 🔑 [신규] 야자감독 구글시트 동기화 설정 저장 (전교 공유)
@@ -1038,17 +1183,31 @@ export default function App() {
       return;
     }
 
-    // 🔑 [신규] 개인 캘린더 — 이 컴퓨터에만 저장
-    if (isPersonalCalendarId(currentCalendarId)) {
-      const newEv = { ...payload, id: crypto.randomUUID() };
-      savePersonalCalendarEvents(currentCalendarId, [...events, newEv]);
+    // 🔑 [신규] 겹쳐보기 모드 — 사용자가 선택한 캘린더로 저장
+    const targetCalId = overlayCalendarIds.length > 0 ? addEventTargetCalendarId : currentCalendarId;
+    if (overlayCalendarIds.length > 0 && !targetCalId) {
+      return showToast("일정을 등록할 캘린더를 선택해 주세요.", "error");
+    }
+
+    // 🔑 개인 캘린더 — 이 컴퓨터에만 저장
+    if (isPersonalCalendarId(targetCalId)) {
+      const newEv = { ...payload, id: crypto.randomUUID(), _calId: targetCalId };
+      const savedList = (() => {
+        try {
+          const raw = localStorage.getItem(`personal_calendar_events_${targetCalId}`);
+          return raw ? JSON.parse(raw) : [];
+        } catch (e) { return []; }
+      })();
+      const { _calId, ...cleanEv } = newEv;
+      localStorage.setItem(`personal_calendar_events_${targetCalId}`, JSON.stringify([...savedList, cleanEv]));
+      setEvents(overlayCalendarIds.length > 0 ? [...events, newEv] : [...savedList, cleanEv]);
       showToast("일정이 개인 캘린더에 등록되었습니다.", "success");
       handleCloseAddModal();
       return;
     }
 
     if (syncStatus === 'connected' && db) {
-      await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
+      await setDoc(doc(getEventsCollectionRef(targetCalId)), payload);
       showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
     } else { saveLocalEvent({ ...payload, id: crypto.randomUUID() }); }
     
@@ -1069,15 +1228,19 @@ export default function App() {
       return;
     }
 
-    // 🔑 [신규] 개인 캘린더
-    if (isPersonalCalendarId(currentCalendarId)) {
-      const updated = events.map(ev => ev.id === editEventForm.id ? { ...ev, ...editEventForm } : ev);
-      savePersonalCalendarEvents(currentCalendarId, updated);
+    // 🔑 [신규] 겹쳐보기 모드 — 일정 자체에 표시된 소속 캘린더(_calId)로 저장
+    const targetCalId = overlayCalendarIds.length > 0 ? editEventForm._calId : currentCalendarId;
+    const { _calId, ...cleanEditForm } = editEventForm;
+
+    if (isPersonalCalendarId(targetCalId)) {
+      const updated = events.map(ev => ev.id === cleanEditForm.id ? { ...ev, ...cleanEditForm, _calId } : ev);
+      if (overlayCalendarIds.length > 0) { setEvents(updated); localStorage.setItem(`personal_calendar_events_${targetCalId}`, JSON.stringify(updated.filter(e => e._calId === targetCalId).map(({ _calId, ...rest }) => rest))); }
+      else savePersonalCalendarEvents(targetCalId, updated);
       setIsEditing(false); setIsDetailModalOpen(false); showToast("수정 완료되었습니다.", "success");
       return;
     }
 
-    if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId), editEventForm.id), editEventForm, { merge: true });
+    if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(targetCalId), cleanEditForm.id), cleanEditForm, { merge: true });
     else setEvents(events.map(ev => ev.id === editEventForm.id ? { ...ev, ...editEventForm } : ev));
     setIsEditing(false); setIsDetailModalOpen(false); showToast("수정 완료되었습니다.", "success");
   };
@@ -1096,14 +1259,23 @@ export default function App() {
       return;
     }
 
-    // 🔑 [신규] 개인 캘린더
-    if (isPersonalCalendarId(currentCalendarId)) {
-      savePersonalCalendarEvents(currentCalendarId, events.filter(ev => ev.id !== id));
+    // 🔑 [신규] 겹쳐보기 모드 대응
+    const targetEv = events.find((e) => e.id === id);
+    const targetCalId = overlayCalendarIds.length > 0 ? targetEv?._calId : currentCalendarId;
+
+    if (isPersonalCalendarId(targetCalId)) {
+      if (overlayCalendarIds.length > 0) {
+        const updated = events.filter(ev => ev.id !== id);
+        setEvents(updated);
+        localStorage.setItem(`personal_calendar_events_${targetCalId}`, JSON.stringify(updated.filter(e => e._calId === targetCalId).map(({ _calId, ...rest }) => rest)));
+      } else {
+        savePersonalCalendarEvents(targetCalId, events.filter(ev => ev.id !== id));
+      }
       setIsDetailModalOpen(false); showToast("삭제 완료되었습니다.", "success");
       return;
     }
 
-    if (syncStatus === 'connected' && db) await deleteDoc(doc(getEventsCollectionRef(currentCalendarId), id));
+    if (syncStatus === 'connected' && db) await deleteDoc(doc(getEventsCollectionRef(targetCalId), id));
     else setEvents(events.filter(ev => ev.id !== id));
     setIsDetailModalOpen(false); showToast("삭제 완료되었습니다.", "success");
   };
@@ -1369,6 +1541,9 @@ export default function App() {
               isCalendarSwitcherOpen={isCalendarSwitcherOpen} setIsCalendarSwitcherOpen={setIsCalendarSwitcherOpen}
               newCalendarName={newCalendarName} setNewCalendarName={setNewCalendarName}
               newCalendarIsPersonal={newCalendarIsPersonal} setNewCalendarIsPersonal={setNewCalendarIsPersonal}
+              isCalendarPickerOpen={isCalendarPickerOpen} setIsCalendarPickerOpen={setIsCalendarPickerOpen}
+              overlayCalendarIds={overlayCalendarIds} setOverlayCalendarIds={setOverlayCalendarIds}
+              getCalendarMeta={getCalendarMeta} personalCalendarList={personalCalendarList}
               handleCreateCalendar={handleCreateCalendar} handleDeleteCalendarEntry={handleDeleteCalendarEntry}
               handleSwitchCalendar={handleSwitchCalendar}
               googleAccountEmail={googleAccountEmail}
@@ -1388,6 +1563,14 @@ export default function App() {
               editingLinkId={editingLinkId}
               handleSaveUsefulLink={handleSaveUsefulLink} handleDeleteUsefulLink={handleDeleteUsefulLink}
               handleStartEditLink={handleStartEditLink} handleStartNewLink={handleStartNewLink}
+              sharedMemos={sharedMemos} isMemoFormOpen={isMemoFormOpen} setIsMemoFormOpen={setIsMemoFormOpen}
+              memoFormTitle={memoFormTitle} setMemoFormTitle={setMemoFormTitle}
+              memoFormContent={memoFormContent} setMemoFormContent={setMemoFormContent}
+              memoFormColor={memoFormColor} setMemoFormColor={setMemoFormColor}
+              editingMemoId={editingMemoId}
+              handleSaveMemo={handleSaveMemo} handleDeleteMemo={handleDeleteMemo}
+              handleStartEditMemo={handleStartEditMemo} handleStartNewMemo={handleStartNewMemo}
+              handleReorderMemos={handleReorderMemos}
               activeDayMeal={activeDayMeal} messengerInput={messengerInput} setMessengerInput={setMessengerInput}
               handleAnalyzeMessengerText={handleAnalyzeMessengerText} isAnalyzing={isAnalyzing} parsedProposals={parsedProposals}
               setParsedProposals={setParsedProposals} categories={categories} categoryOrder={categoryOrder} NOTION_PALETTES={NOTION_PALETTES}
@@ -1415,6 +1598,7 @@ export default function App() {
           <button type="button" onClick={() => setIsGradesDashboardOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isGradesDashboardOpen ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="학생 성적 대시보드"><BarChart3 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('tools') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('gradeConv')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('gradeConv') ? 'bg-rose-50 border-rose-200 text-rose-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="등급 환산 계산기"><Calculator className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('memo')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('memo') ? 'bg-yellow-50 border-yellow-200 text-yellow-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 메모장"><StickyNote className="w-5 h-5" /></button>
         </div>
       </div>
 
@@ -1521,6 +1705,25 @@ export default function App() {
               </form>
             ) : (
               <form onSubmit={handleAddEventSubmit} className="space-y-4 text-sm">
+                {/* 🔑 [신규] 겹쳐보기 모드일 때만 등록할 캘린더 선택 */}
+                {overlayCalendarIds.length > 0 && (
+                  <div className="flex flex-col">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5 text-blue-500" /> 등록할 캘린더 *
+                    </label>
+                    <select
+                      required
+                      value={addEventTargetCalendarId}
+                      onChange={(e) => setAddEventTargetCalendarId(e.target.value)}
+                      className="w-full p-2 border border-[#E9E9E6] rounded-md bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    >
+                      <option value="" disabled>선택해 주세요</option>
+                      {overlayCalendarIds.map((calId) => (
+                        <option key={calId} value={calId}>{getCalendarMeta(calId).name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">일정 제목 *</label>
                   <input

@@ -1,6 +1,6 @@
 // src/components/SideAccordionPanel.jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Settings2, Trash2, Link2, Calculator } from 'lucide-react';
+import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, ChevronUp, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Settings2, Trash2, Link2, Calculator, StickyNote, Menu } from 'lucide-react';
 
 // 🔑 2026년 유치원·초등학교·중학교·고등학교 교원 봉급표 (월지급액, 단위: 원)
 // 출처: 인사혁신처 고시. 매년 갱신되니 새 봉급표 발표 시 이 배열만 교체하면 됩니다.
@@ -49,6 +49,15 @@ function convertGrade5to9(g5) {
 }
 
 // 🔑 [신규] 역변환: 9등급제 → 5등급제 (같은 표를 g9 기준으로 선형보간)
+// 🔑 [신규] 공유 메모장 — 포스트잇 색상 팔레트
+const POST_IT_COLORS = {
+  yellow: { bg: 'bg-yellow-100', border: 'border-yellow-300' },
+  pink: { bg: 'bg-pink-100', border: 'border-pink-300' },
+  blue: { bg: 'bg-blue-100', border: 'border-blue-300' },
+  green: { bg: 'bg-green-100', border: 'border-green-300' },
+  purple: { bg: 'bg-purple-100', border: 'border-purple-300' },
+};
+
 function convertGrade9to5(g9) {
   const a = GRADE_CONV_TABLE;
   if (g9 <= a[0].g9) return { g5: a[0].g5, pct: a[0].pct };
@@ -73,7 +82,10 @@ export default React.memo(function SideAccordionPanel({
   customTimetables, onUpdateGlobalTimetables, onDeleteGlobalTimetable, myClassNum, myTeacherName,
   usefulLinks, isLinkFormOpen, setIsLinkFormOpen,
   linkFormTitle, setLinkFormTitle, linkFormDesc, setLinkFormDesc, linkFormUrl, setLinkFormUrl,
-  editingLinkId, handleSaveUsefulLink, handleDeleteUsefulLink, handleStartEditLink, handleStartNewLink
+  editingLinkId, handleSaveUsefulLink, handleDeleteUsefulLink, handleStartEditLink, handleStartNewLink,
+  sharedMemos, isMemoFormOpen, setIsMemoFormOpen,
+  memoFormTitle, setMemoFormTitle, memoFormContent, setMemoFormContent, memoFormColor, setMemoFormColor,
+  editingMemoId, handleSaveMemo, handleDeleteMemo, handleStartEditMemo, handleStartNewMemo, handleReorderMemos
 }) {
 
   // 시간표 제어 전용 상태 그룹
@@ -90,6 +102,38 @@ export default React.memo(function SideAccordionPanel({
   const [editingCell, setEditingCell] = useState(null); 
   const [cellInputValue, setCellInputValue] = useState('');
   const [isManageListOpen, setIsManageListOpen] = useState(false); // 🔑 등록된 시간표 관리 목록 펼침 상태
+  const prevMemoIdsRef = useRef(new Set()); // 🔑 [신규] 새로 추가된 메모를 감지해서 자동으로 펼치기 위한 참조
+  const [expandedMemoIds, setExpandedMemoIds] = useState(new Set()); // 🔑 펼쳐진 메모 id 목록
+  const [draggedMemoId, setDraggedMemoId] = useState(null); // 🔑 드래그 중인 메모 id
+  const [titleHoverMemoId, setTitleHoverMemoId] = useState(null); // 🔑 [신규] 제목을 클릭/포커스했을 때 수정 아이콘 표시
+  const toggleMemoExpand = (id) => {
+    setExpandedMemoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  // 🔑 [신규] sharedMemos에 새 메모가 추가되면 자동으로 펼침 상태로 등록
+  useEffect(() => {
+    const currentIds = new Set(sharedMemos.map((m) => m.id));
+    const newIds = [...currentIds].filter((id) => !prevMemoIdsRef.current.has(id));
+    if (newIds.length > 0) {
+      setExpandedMemoIds((prev) => new Set([...prev, ...newIds]));
+    }
+    prevMemoIdsRef.current = currentIds;
+  }, [sharedMemos]);
+
+  const handleMemoDrop = (targetId) => {
+    if (!draggedMemoId || draggedMemoId === targetId) return;
+    const fromIdx = sharedMemos.findIndex((m) => m.id === draggedMemoId);
+    const toIdx = sharedMemos.findIndex((m) => m.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const reordered = [...sharedMemos];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    handleReorderMemos(reordered);
+    setDraggedMemoId(null);
+  };
   const [isUploadGuideOpen, setIsUploadGuideOpen] = useState(false); // 🔑 양식 다운로드/엑셀 등록/안내 모달
   const [isClassDropdownOpen, setIsClassDropdownOpen] = useState(false); // 🔑 [신규] 학급 커스텀 드롭다운
   const [isTeacherDropdownOpen, setIsTeacherDropdownOpen] = useState(false); // 🔑 [신규] 교사 커스텀 드롭다운
@@ -1417,6 +1461,117 @@ export default React.memo(function SideAccordionPanel({
               </button>
             )}
           </div>
+          </aside>
+        )}
+
+        {/* ==================== 공유 메모장 패널 ==================== */}
+        {activeSidePanel.includes('memo') && (
+          <aside style={{ order: activeSidePanel.indexOf('memo') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 h-fit animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+            <PanelCloseButton panelName="memo" />
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b border-gray-100 pb-2 pr-6">
+                <div className="p-1.5 bg-yellow-50 text-yellow-700 rounded-lg shrink-0"><StickyNote className="w-4 h-4" /></div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-gray-700 flex-1">공유 메모장</h3>
+              </div>
+
+              {isMemoFormOpen && (
+                <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg p-3 space-y-2">
+                  <input type="text" placeholder="제목" value={memoFormTitle} onChange={(e) => setMemoFormTitle(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none" />
+                  <textarea placeholder="내용 (선택)" rows={3} value={memoFormContent} onChange={(e) => setMemoFormContent(e.target.value)} className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none resize-none" />
+                  <div className="flex items-center gap-1.5">
+                    {Object.entries(POST_IT_COLORS).map(([key, c]) => (
+                      <button
+                        key={key} type="button" onClick={() => setMemoFormColor(key)}
+                        className={`w-5 h-5 rounded-full border-2 ${c.bg} ${memoFormColor === key ? 'border-gray-700' : 'border-white'}`}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button type="button" onClick={() => setIsMemoFormOpen(false)} className="flex-1 py-1.5 border border-[#E9E9E6] text-gray-600 rounded text-xs font-bold">취소</button>
+                    <button type="button" onClick={handleSaveMemo} className="flex-1 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs font-bold">{editingMemoId ? '수정 완료' : '등록'}</button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2">
+                {sharedMemos.length === 0 && !isMemoFormOpen && (
+                  <div
+                    onClick={handleStartNewMemo}
+                    className="flex items-center justify-center gap-1.5 py-6 bg-yellow-50/40 border border-dashed border-yellow-300 rounded-md cursor-pointer hover:bg-yellow-50 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-yellow-600" />
+                    <p className="text-xs font-bold text-yellow-700">첫 메모를 추가해 보세요</p>
+                  </div>
+                )}
+                {sharedMemos.map((memo) => {
+                  const isExpanded = expandedMemoIds.has(memo.id);
+                  const colorSet = POST_IT_COLORS[memo.color] || POST_IT_COLORS.yellow;
+                  const showEditIcon = titleHoverMemoId === memo.id;
+                  return (
+                    <div
+                      key={memo.id}
+                      draggable
+                      onDragStart={() => setDraggedMemoId(memo.id)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleMemoDrop(memo.id)}
+                      onDragEnd={() => setDraggedMemoId(null)}
+                      className={`relative ${colorSet.bg} border ${colorSet.border} rounded-md p-2.5 shadow-sm cursor-grab active:cursor-grabbing transition-all ${draggedMemoId === memo.id ? 'opacity-40' : 'opacity-100'}`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {/* 🔑 왼쪽: 새 메모 추가 */}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleStartNewMemo(); }}
+                          className="p-0.5 text-gray-500 hover:text-gray-800 hover:bg-white/60 rounded shrink-0"
+                          title="새 메모 추가"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* 🔑 가운데: 제목 (클릭하면 연필 아이콘 노출) */}
+                        <div
+                          className="flex-1 min-w-0 flex items-center gap-1 cursor-pointer"
+                          onClick={(e) => { e.stopPropagation(); setTitleHoverMemoId(titleHoverMemoId === memo.id ? null : memo.id); }}
+                        >
+                          <p className="text-xs font-bold text-gray-800 leading-snug wrap-break-word flex-1">{memo.title}</p>
+                          {showEditIcon && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleStartEditMemo(memo); setTitleHoverMemoId(null); }}
+                              className="p-0.5 text-gray-500 hover:text-gray-800 hover:bg-white/60 rounded shrink-0"
+                              title="수정"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 🔑 오른쪽: 펼치기/접기 화살표 → X 삭제 */}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); toggleMemoExpand(memo.id); }}
+                          className="p-0.5 text-gray-500 hover:text-gray-800 hover:bg-white/60 rounded shrink-0"
+                          title={isExpanded ? "접기" : "펼치기"}
+                        >
+                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleDeleteMemo(memo.id); }}
+                          className="p-0.5 text-gray-500 hover:text-rose-600 hover:bg-white/60 rounded shrink-0"
+                          title="삭제"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      {isExpanded && memo.content && (
+                        <p className="text-[11px] text-gray-700 mt-1.5 pl-6 whitespace-pre-wrap leading-relaxed wrap-break-word">{memo.content}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </aside>
         )}
 
