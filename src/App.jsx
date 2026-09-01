@@ -170,8 +170,17 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState('initializing');
 
   // 🔑 [신규] 여러 개의 독립된 공유 캘린더 관리
-  const [calendarList, setCalendarList] = useState([{ id: 'default', name: '2학년실 캘린더' }]);
+  const [calendarList, setCalendarList] = useState([{ id: 'default', name: '2학년실 캘린더' }]); // 🔑 공유 캘린더 목록 (Firestore)
+  const [personalCalendarList, setPersonalCalendarList] = useState([]); // 🔑 [신규] 개인 캘린더 목록 (localStorage)
   const [currentCalendarId, setCurrentCalendarId] = useState('default');
+  const [newCalendarIsPersonal, setNewCalendarIsPersonal] = useState(false); // 🔑 [신규] 생성 시 공유/개인 선택
+  const isPersonalCalendarId = (id) => personalCalendarList.some((c) => c.id === id); // 🔑 [신규]
+
+  // 🔑 [신규] 개인 캘린더의 일정 목록을 localStorage에 저장 + 화면 상태(events)도 함께 갱신
+  const savePersonalCalendarEvents = (calendarId, updatedEvents) => {
+    localStorage.setItem(`personal_calendar_events_${calendarId}`, JSON.stringify(updatedEvents));
+    setEvents(updatedEvents);
+  };
   const [isCalendarSwitcherOpen, setIsCalendarSwitcherOpen] = useState(false);
   const [newCalendarName, setNewCalendarName] = useState('');
 
@@ -342,6 +351,16 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem('school_calendar_bookmarks', JSON.stringify(bookmarks)); }, [bookmarks]);
 
+  // 🔑 [신규] 개인 캘린더 목록 불러오기 (이 컴퓨터에만 저장)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('personal_calendars_list');
+      if (saved) setPersonalCalendarList(JSON.parse(saved));
+    } catch (e) {
+      // 무시
+    }
+  }, []);
+
   // 🔑 [신규] 앱 버전 정보를 받아와 헤더에 표시
   useEffect(() => {
     if (window.electronAPI?.getAppVersion) {
@@ -399,12 +418,24 @@ export default function App() {
 
   useEffect(() => {
     if (currentCalendarId === 'google') return; // 🔑 구글 캘린더는 별도 이펙트에서 처리
+
+    // 🔑 [신규] 개인 캘린더면 Firestore 대신 이 컴퓨터에 저장된 데이터를 사용
+    if (isPersonalCalendarId(currentCalendarId)) {
+      try {
+        const saved = localStorage.getItem(`personal_calendar_events_${currentCalendarId}`);
+        setEvents(saved ? JSON.parse(saved) : []);
+      } catch (e) {
+        setEvents([]);
+      }
+      return;
+    }
+
     if (syncStatus !== 'connected' || !db) return;
     return onSnapshot(getEventsCollectionRef(currentCalendarId), (snapshot) => {
       const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
       setEvents(items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
     });
-  }, [syncStatus, currentCalendarId]);
+  }, [syncStatus, currentCalendarId, personalCalendarList]);
 
   // 🔑 [신규] 유용한 기능 링크 — 전교 공유, 실시간 동기화
   useEffect(() => {
@@ -618,18 +649,39 @@ export default function App() {
     const trimmed = newCalendarName.trim();
     if (!trimmed) return showToast("캘린더 이름을 입력해 주세요.", "error");
     const newCalendar = { id: crypto.randomUUID(), name: trimmed };
-    const updatedList = [...calendarList, newCalendar];
-    setCalendarList(updatedList);
+
+    if (newCalendarIsPersonal) {
+      // 🔑 [신규] 개인 캘린더 — 이 컴퓨터에만 저장, 다른 선생님은 모름
+      const updated = [...personalCalendarList, { ...newCalendar, isPersonal: true }];
+      setPersonalCalendarList(updated);
+      localStorage.setItem('personal_calendars_list', JSON.stringify(updated));
+    } else {
+      const updatedList = [...calendarList, newCalendar];
+      setCalendarList(updatedList);
+      if (syncStatus === 'connected' && db) {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), { items: updatedList });
+      }
+    }
+
     setNewCalendarName('');
+    setNewCalendarIsPersonal(false);
     setCurrentCalendarId(newCalendar.id);
     setIsCalendarSwitcherOpen(false);
-    if (syncStatus === 'connected' && db) {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calendars', 'list'), { items: updatedList });
-    }
     showToast(`'${trimmed}' 캘린더가 생성되었습니다.`, "success");
   };
 
   const handleDeleteCalendarEntry = async (calendarId) => {
+    // 🔑 [신규] 개인 캘린더 삭제 — 목록과 저장된 일정을 함께 제거
+    if (isPersonalCalendarId(calendarId)) {
+      const updated = personalCalendarList.filter(c => c.id !== calendarId);
+      setPersonalCalendarList(updated);
+      localStorage.setItem('personal_calendars_list', JSON.stringify(updated));
+      localStorage.removeItem(`personal_calendar_events_${calendarId}`);
+      if (currentCalendarId === calendarId) setCurrentCalendarId('default');
+      showToast("개인 캘린더가 삭제되었습니다.", "info");
+      return;
+    }
+
     if (calendarList.length <= 1) return showToast("최소 1개 이상의 캘린더가 유지되어야 합니다.", "error");
     const updatedList = calendarList.filter(c => c.id !== calendarId);
     setCalendarList(updatedList);
@@ -684,6 +736,16 @@ export default function App() {
 
   // 🔑 [최적화] 드래그가 끝난 시점에 CalendarBoard가 딱 1번 호출: 여기서만 Firestore/로컬스토리지에 저장
   const handleEventOrderCommit = async (updatedOrders) => {
+    // 🔑 [신규] 개인 캘린더
+    if (isPersonalCalendarId(currentCalendarId)) {
+      const updated = events.map(ev => {
+        const match = updatedOrders.find(o => o.id === ev.id);
+        return match ? { ...ev, dayOrder: match.updatedOrder } : ev;
+      });
+      savePersonalCalendarEvents(currentCalendarId, updated);
+      return;
+    }
+
     if (syncStatus === 'connected' && db) {
       try {
         const batch = writeBatch(db);
@@ -976,6 +1038,15 @@ export default function App() {
       return;
     }
 
+    // 🔑 [신규] 개인 캘린더 — 이 컴퓨터에만 저장
+    if (isPersonalCalendarId(currentCalendarId)) {
+      const newEv = { ...payload, id: crypto.randomUUID() };
+      savePersonalCalendarEvents(currentCalendarId, [...events, newEv]);
+      showToast("일정이 개인 캘린더에 등록되었습니다.", "success");
+      handleCloseAddModal();
+      return;
+    }
+
     if (syncStatus === 'connected' && db) {
       await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
       showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
@@ -998,6 +1069,14 @@ export default function App() {
       return;
     }
 
+    // 🔑 [신규] 개인 캘린더
+    if (isPersonalCalendarId(currentCalendarId)) {
+      const updated = events.map(ev => ev.id === editEventForm.id ? { ...ev, ...editEventForm } : ev);
+      savePersonalCalendarEvents(currentCalendarId, updated);
+      setIsEditing(false); setIsDetailModalOpen(false); showToast("수정 완료되었습니다.", "success");
+      return;
+    }
+
     if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId), editEventForm.id), editEventForm, { merge: true });
     else setEvents(events.map(ev => ev.id === editEventForm.id ? { ...ev, ...editEventForm } : ev));
     setIsEditing(false); setIsDetailModalOpen(false); showToast("수정 완료되었습니다.", "success");
@@ -1014,6 +1093,13 @@ export default function App() {
         showToast("구글 일정 삭제에 실패했습니다.", "error");
       }
       setIsDetailModalOpen(false);
+      return;
+    }
+
+    // 🔑 [신규] 개인 캘린더
+    if (isPersonalCalendarId(currentCalendarId)) {
+      savePersonalCalendarEvents(currentCalendarId, events.filter(ev => ev.id !== id));
+      setIsDetailModalOpen(false); showToast("삭제 완료되었습니다.", "success");
       return;
     }
 
@@ -1279,9 +1365,10 @@ export default function App() {
               formatDateString={formatDateString} activeSidePanel={activeSidePanel.length > 0}
               onEventOrderChange={handleEventOrderPreview}
               onEventOrderCommit={handleEventOrderCommit}
-              calendarList={calendarList} currentCalendarId={currentCalendarId}
+              calendarList={[...calendarList, ...personalCalendarList]} currentCalendarId={currentCalendarId}
               isCalendarSwitcherOpen={isCalendarSwitcherOpen} setIsCalendarSwitcherOpen={setIsCalendarSwitcherOpen}
               newCalendarName={newCalendarName} setNewCalendarName={setNewCalendarName}
+              newCalendarIsPersonal={newCalendarIsPersonal} setNewCalendarIsPersonal={setNewCalendarIsPersonal}
               handleCreateCalendar={handleCreateCalendar} handleDeleteCalendarEntry={handleDeleteCalendarEntry}
               handleSwitchCalendar={handleSwitchCalendar}
               googleAccountEmail={googleAccountEmail}

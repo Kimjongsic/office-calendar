@@ -5,7 +5,7 @@ import {
   Line, ComposedChart, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, LabelList, BarChart, Bar
 } from "recharts";
-import { X } from "lucide-react";
+import { X, Download, Calculator, Upload, Trash2 } from "lucide-react";
 
 const SUBJECTS = ["국어", "수학", "영어", "사회", "과학", "기타"]; // 🔑 내신 카드 순서 (한국사는 사회에 통합되어 제거됨)
 const MOCK_SUBJECTS = ["국어", "수학", "영어", "사회", "과학", "한국사"]; // 🔑 모의고사 카드 순서 (한국사를 별도로 표시)
@@ -118,6 +118,51 @@ function mapSubjectCategory(subjectGroup) {
   if (g.startsWith("사회")) return "사회"; // 🔑 한국사도 사회로 통합 (내신은 원래대로)
   if (g === "과학") return "과학";
   return "기타";
+}
+
+// 🔑 [신규] 과목명 비교 시 띄어쓰기 무시
+const normalizeName = (s) => String(s || "").replace(/\s+/g, "");
+
+// 🔑 [신규] "2학년 2학기 수강신청" 엑셀 파싱 — G열(줄바꿈 5줄, "과목명(반코드)" 형식)에서 과목명만 추출
+function parseElectiveRoster(workbook) {
+  const sheetName = workbook.SheetNames[0];
+  const ws = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  let headerRowIdx = -1, colBan = -1, colBun = -1, colTarget = -1;
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const idxTarget = row.findIndex((v) => String(v || "").includes("2학년 2학기 수강 내역"));
+    if (idxTarget !== -1) {
+      headerRowIdx = r;
+      colTarget = idxTarget;
+      colBan = row.findIndex((v) => String(v || "").trim() === "반");
+      colBun = row.findIndex((v) => String(v || "").trim() === "번호");
+      break;
+    }
+  }
+  if (headerRowIdx === -1 || colBan === -1 || colBun === -1) {
+    throw new Error('"반", "번호", "2학년 2학기 수강 내역" 열을 찾을 수 없습니다.');
+  }
+
+  const result = {}; // { 반: { 번호: [정규화된과목명, ...] } }
+  for (let r = headerRowIdx + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+    const cls = parseInt(row[colBan], 10);
+    const num = parseInt(row[colBun], 10);
+    const cell = row[colTarget];
+    if (!cls || !num || !cell) continue;
+
+    const names = String(cell)
+      .split(/\r?\n/)
+      .map((line) => normalizeName(line.replace(/\([^)]*\)\s*$/, ""))) // 🔑 끝의 (반코드) 제거 후 정규화
+      .filter(Boolean);
+
+    result[cls] = result[cls] || {};
+    result[cls][num] = names;
+  }
+  return result;
 }
 
 function findNaeisSheet(workbook) {
@@ -425,6 +470,35 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
     return () => clearTimeout(timer);
   }, []);
 
+  // 🔑 [신규] 저장된 2학년 2학기 선택과목 명단 불러오기
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("student_elective_2_2");
+      if (saved) setElectiveRoster(JSON.parse(saved));
+    } catch (e) {
+      // 저장된 데이터 없음/손상 시 무시
+    }
+  }, []);
+
+  const handleElectiveUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setElectiveUploadError("");
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target.result, { type: "array" });
+        const parsed = parseElectiveRoster(wb);
+        setElectiveRoster(parsed);
+        localStorage.setItem("student_elective_2_2", JSON.stringify(parsed));
+      } catch (err) {
+        setElectiveUploadError(err.message || "파일을 읽는 중 문제가 발생했어요.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  };
+
   // 🔑 [수정] window.storage(아티팩트 전용 API) 대신 localStorage 사용 — 이 PC에만 저장
   useEffect(() => {
     try {
@@ -480,6 +554,8 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
   const [selectedPastCourses, setSelectedPastCourses] = useState(new Set()); // 🔑 이수과목 중 선택된 것 (key: term|courseName)
   const [selectedPlannedCourses, setSelectedPlannedCourses] = useState({}); // 🔑 예정과목 선택 { courseName: {credit, subject} }
   const [plannedGrades, setPlannedGrades] = useState({}); // 🔑 예정과목별 입력한 예상 등급 { courseName: '3' }
+  const [electiveRoster, setElectiveRoster] = useState({}); // 🔑 [신규] 2학년 2학기 선택과목 명단 { 반: { 번호: [과목명,...] } }
+  const [electiveUploadError, setElectiveUploadError] = useState("");
 
   // 🔑 [수정] 훅은 early return보다 반드시 위에 있어야 하므로, uploaded/classNum/studentNum만으로 안전하게 계산
   const ALL_TERMS = useMemo(() => {
@@ -896,15 +972,27 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
               )}
             </div>
 
-            <div className="no-capture" style={{ display: "flex", gap: "10px" }}>
-              <button onClick={handleOpenDesigner} style={{ ...btnStyle, background: "#7c3aed", color: "#fff", border: "1px solid #7c3aed" }}>
-                성적 설계기
+            <div className="no-capture" style={{ display: "flex", gap: "8px" }}>
+              <button onClick={handleOpenDesigner} title="예상 등급 계산" style={{ ...btnStyle, padding: "9px", background: "#7c3aed", color: "#fff", border: "1px solid #7c3aed" }}>
+                <Calculator size={16} />
               </button>
-              <button onClick={handlePrintPdf} disabled={isSavingPdf} style={{ ...btnStyle, background: "#2a78d6", color: "#fff", border: "1px solid #2a78d6" }}>
-                {isSavingPdf ? '저장 중...' : 'PDF로 저장'}
+
+              <label title={Object.keys(electiveRoster).length > 0 ? "선택과목 명단 업로드됨 (다시 클릭해 교체)" : "선택과목 명단 업로드 (아직 없음)"} style={{ ...btnStyle, padding: "9px", cursor: "pointer", position: "relative" }}>
+                <Upload size={16} />
+                <span style={{
+                  position: "absolute", top: "3px", right: "3px", width: "7px", height: "7px", borderRadius: "50%",
+                  background: Object.keys(electiveRoster).length > 0 ? "#22C55E" : "#D1D5DB",
+                  border: "1.5px solid #fff",
+                }} />
+                <input type="file" accept=".xlsx,.xls" onChange={handleElectiveUpload} style={{ display: "none" }} />
+              </label>
+
+              <button onClick={handlePrintPdf} disabled={isSavingPdf} title="PDF로 저장" style={{ ...btnStyle, padding: "9px", background: "#2a78d6", color: "#fff", border: "1px solid #2a78d6" }}>
+                <Download size={16} />
               </button>
-              <button onClick={() => { clearStorage(); setUploadError(""); }} style={btnStyle}>
-                저장된 데이터 삭제
+
+              <button onClick={() => { clearStorage(); setUploadError(""); }} title="저장된 데이터 삭제" style={{ ...btnStyle, padding: "9px" }}>
+                <Trash2 size={16} />
               </button>
             </div>
 
@@ -1153,12 +1241,17 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
               onClick={(e) => e.stopPropagation()}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#1F3A5F", margin: 0 }}>성적 설계기</h2>
+                <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#1F3A5F", margin: 0 }}>예상 등급 계산</h2>
                 <button onClick={() => setIsDesignerOpen(false)} style={{ ...btnStyle, padding: "6px 10px" }}>닫기</button>
               </div>
               <p style={{ fontSize: "12px", color: "#6B7280", margin: "0 0 16px" }}>
                 과목을 선택하고, 이수 예정 과목은 예상 등급을 입력해 원하는 조합의 평균 등급을 계산해보세요. 이 계산 결과는 저장되지 않습니다.
               </p>
+              {electiveUploadError && (
+                <div style={{ background: "#FCEBEB", color: "#791F1F", borderRadius: "8px", padding: "8px 12px", fontSize: "12px", marginBottom: "14px" }}>
+                  {electiveUploadError}
+                </div>
+              )}
 
               {/* 이수한 과목 (기존 성적, 등급 있는 것만) */}
               <div style={{ background: "#FFFFFF", border: "1px solid #E2E5EA", borderRadius: "12px", padding: "16px", marginBottom: "14px" }}>
@@ -1198,8 +1291,15 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
                 <div key={termLabel} style={{ background: "#FFFFFF", border: "1px solid #E2E5EA", borderRadius: "12px", padding: "16px", marginBottom: "14px" }}>
                   <p style={{ fontSize: "14px", fontWeight: 700, color: "#1F3A5F", margin: "0 0 10px" }}>{termLabel} (이수 예정)</p>
                   {Object.entries(groups).map(([groupLabel, courses]) => {
+                    // 🔑 [수정] 필터링 대신, 학생이 실제 신청한 과목을 표시만 다르게(테두리 강조) 함
+                    const studentElectiveSet = new Set(
+                      ((electiveRoster[classNum] || {})[effectiveStudentNum]) || []
+                    );
+                    const isElectiveTerm = termLabel === "2학년 2학기" && groupLabel !== "공통";
+                    const displayCourses = courses;
+
                     const maxPick = extractMaxPick(groupLabel);
-                    const groupCourseNames = courses.map((c) => c.name);
+                    const groupCourseNames = displayCourses.map((c) => c.name);
                     const pickedCount = groupCourseNames.filter((n) => selectedPlannedCourses[n]).length;
                     return (
                       <div key={groupLabel} style={{ marginBottom: "10px" }}>
@@ -1208,17 +1308,19 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
                           {maxPick && <span style={{ marginLeft: "6px", color: pickedCount >= maxPick ? "#7c3aed" : "#B0B5BD" }}>({pickedCount}/{maxPick} 선택됨)</span>}
                         </p>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                          {courses.map((course) => {
+                          {displayCourses.map((course) => {
                             const isSelected = !!selectedPlannedCourses[course.name];
                             const isDisabled = !isSelected && maxPick && pickedCount >= maxPick;
+                            const isStudentEnrolled = isElectiveTerm && studentElectiveSet.has(normalizeName(course.name)); // 🔑 학생이 실제 신청한 과목
+                            const borderColor = isSelected ? "#7c3aed" : isStudentEnrolled ? "#16A34A" : "#E2E5EA";
                             return (
                               <div key={course.name} style={{
                                 display: "flex", alignItems: "center", gap: "6px", padding: "4px 8px", borderRadius: "8px",
-                                border: `1px solid ${isSelected ? "#7c3aed" : "#E2E5EA"}`,
-                                background: isSelected ? "#F5F0FF" : isDisabled ? "#F3F4F6" : "#FAFBFC",
+                                border: `1.5px solid ${borderColor}`,
+                                background: isSelected ? "#F5F0FF" : isStudentEnrolled ? "#F0FDF4" : isDisabled ? "#F3F4F6" : "#FAFBFC",
                                 opacity: isDisabled ? 0.5 : 1,
                               }}>
-                                <label style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11.5px", fontWeight: 600, color: course.counted ? "#374151" : "#B0B5BD", cursor: isDisabled ? "not-allowed" : "pointer" }}>
+                                <label style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11.5px", fontWeight: 600, color: "#374151", cursor: isDisabled ? "not-allowed" : "pointer" }}>
                                   <input
                                     type="checkbox" checked={isSelected} disabled={isDisabled}
                                     onChange={() => togglePlannedCourse(course, groupLabel, groupCourseNames, maxPick)}

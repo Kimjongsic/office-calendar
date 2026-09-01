@@ -10,7 +10,8 @@ export default React.memo(function CalendarBoard({
   onEventOrderChange,   // 드래그 중 화면 미리보기 전용 (로컬 state만 갱신)
   onEventOrderCommit,   // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
   calendarList, currentCalendarId, isCalendarSwitcherOpen, setIsCalendarSwitcherOpen,
-  newCalendarName, setNewCalendarName, handleCreateCalendar, handleDeleteCalendarEntry, handleSwitchCalendar,
+  newCalendarName, setNewCalendarName, newCalendarIsPersonal, setNewCalendarIsPersonal,
+  handleCreateCalendar, handleDeleteCalendarEntry, handleSwitchCalendar,
   googleAccountEmail, handleSwitchToGoogleCalendar,
   onEventDateMove
 }) {
@@ -347,7 +348,7 @@ export default React.memo(function CalendarBoard({
                   onClick={() => handleSwitchCalendar(cal.id)}
                   className={`px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap transition-colors duration-150 ${cal.id === currentCalendarId ? 'bg-white text-[#37352F] shadow-xs border border-[#E9E9E6]' : 'border border-transparent text-gray-400 hover:text-gray-700'}`}
                 >
-                  <CalendarIcon className="w-3.5 h-3.5" /> {cal.name}
+                  <CalendarIcon className="w-3.5 h-3.5" /> {cal.name} {cal.isPersonal && <span title="개인 캘린더" style={{ fontSize: '10px' }}>🔒</span>}
                 </button>
                 {calendarList.length > 1 && (
                   <button
@@ -384,7 +385,7 @@ export default React.memo(function CalendarBoard({
                 <Plus className="w-3.5 h-3.5" />
               </button>
               {isCalendarSwitcherOpen && (
-                <div className="absolute left-0 mt-1 w-56 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-2 flex gap-1.5">
+                <div className="absolute left-0 mt-1 w-64 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-2.5 space-y-2">
                   <input
                     type="text"
                     autoFocus
@@ -392,9 +393,29 @@ export default React.memo(function CalendarBoard({
                     value={newCalendarName}
                     onChange={(e) => setNewCalendarName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleCreateCalendar(); }}
-                    className="flex-1 min-w-0 px-2 py-1.5 border border-[#E9E9E6] rounded text-xs bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
+                    className="w-full px-2 py-1.5 border border-[#E9E9E6] rounded text-xs bg-[#F7F7F5] focus:outline-none focus:ring-1 focus:ring-purple-400"
                   />
-                  <button type="button" onClick={handleCreateCalendar} className="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded text-xs font-bold shrink-0">추가</button>
+                  {/* 🔑 [신규] 공유/개인 캘린더 선택 */}
+                  <div className="flex gap-1 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-md">
+                    <button
+                      type="button"
+                      onClick={() => setNewCalendarIsPersonal(false)}
+                      className={`flex-1 py-1.5 rounded text-[11px] font-bold transition-colors ${!newCalendarIsPersonal ? 'bg-white text-purple-700 shadow-xs border border-[#E9E9E6]' : 'text-gray-400'}`}
+                    >
+                      👥 공유 캘린더
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewCalendarIsPersonal(true)}
+                      className={`flex-1 py-1.5 rounded text-[11px] font-bold transition-colors ${newCalendarIsPersonal ? 'bg-white text-purple-700 shadow-xs border border-[#E9E9E6]' : 'text-gray-400'}`}
+                    >
+                      🔒 개인 캘린더
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-400 leading-snug">
+                    {newCalendarIsPersonal ? '이 컴퓨터에만 저장되며 다른 선생님에게는 보이지 않습니다.' : '모든 선생님과 공유되는 캘린더입니다.'}
+                  </p>
+                  <button type="button" onClick={handleCreateCalendar} className="w-full py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded text-xs font-bold">추가</button>
                 </div>
               )}
             </div>
