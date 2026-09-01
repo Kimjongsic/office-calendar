@@ -353,10 +353,7 @@ export default React.memo(function CalendarBoard({
           {/* 🔑 [신규] 캘린더 선택 탭 */}
           <div className="flex items-center gap-1 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg flex-wrap">
             {calendarList.map((cal) => {
-              // 🔑 겹쳐보기 모드일 땐 선택된 캘린더 전부를, 아니면 현재 보고 있는 캘린더 하나만 활성 표시
-              const isActive = overlayCalendarIds.length > 0
-                ? overlayCalendarIds.includes(cal.id)
-                : cal.id === currentCalendarId;
+              const isActive = cal.id === currentCalendarId; // 🔑 [수정] 개별 탭은 항상 하나만 활성화
               return (
               <div key={cal.id} className="relative group/tab shrink-0">
                 <button
@@ -395,9 +392,18 @@ export default React.memo(function CalendarBoard({
             <div className="relative shrink-0">
               <button
                 type="button"
-                onClick={() => setIsCalendarPickerOpen(!isCalendarPickerOpen)}
-                className={`px-2 py-1.5 rounded-md transition ${overlayCalendarIds.length > 0 ? 'text-blue-600 bg-white shadow-xs' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`}
-                title="여러 캘린더 겹쳐보기"
+                onClick={() => {
+                  // 🔑 이미 조합이 있으면 클릭 한 번으로 그 조합을 바로 보여줌 (탭처럼 동작)
+                  // 조합이 없거나, 이미 겹쳐보기 중이면 선택 팝업을 염
+                  if (overlayCalendarIds.length > 0 && currentCalendarId !== 'overlay') {
+                    handleSwitchCalendar('overlay');
+                  } else {
+                    setIsCalendarPickerOpen(!isCalendarPickerOpen);
+                  }
+                }}
+                onDoubleClick={() => setIsCalendarPickerOpen(true)} // 🔑 조합 구성을 다시 바꾸고 싶을 땐 더블클릭으로 팝업 열기
+                className={`px-2.5 py-1.5 text-xs font-bold rounded-md flex items-center gap-1 whitespace-nowrap transition-colors duration-150 shrink-0 ${currentCalendarId === 'overlay' ? 'bg-white text-blue-700 shadow-xs border border-[#E9E9E6]' : overlayCalendarIds.length > 0 ? 'text-blue-500 hover:text-blue-700 hover:bg-white' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`}
+                title={overlayCalendarIds.length > 0 ? `겹쳐보기: ${overlayCalendarIds.map((id) => getCalendarMeta(id).name).join(' + ')} (더블클릭으로 구성 변경)` : "여러 캘린더 겹쳐보기"}
               >
                 <Layers className="w-3.5 h-3.5" />
               </button>
@@ -419,11 +425,26 @@ export default React.memo(function CalendarBoard({
                       {cal.isPersonal && <span style={{ fontSize: '10px' }}>🔒</span>}
                     </label>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (overlayCalendarIds.length > 0) handleSwitchCalendar('overlay');
+                      setIsCalendarPickerOpen(false);
+                    }}
+                    disabled={overlayCalendarIds.length === 0}
+                    className="w-full mt-1 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded text-[11px] font-bold"
+                  >
+                    겹쳐보기로 전환
+                  </button>
                   {overlayCalendarIds.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => { setOverlayCalendarIds([]); setIsCalendarPickerOpen(false); }}
-                      className="w-full mt-1 py-1.5 border border-[#E9E9E6] text-gray-500 hover:bg-gray-50 rounded text-[11px] font-bold"
+                      onClick={() => {
+                        setOverlayCalendarIds([]);
+                        if (currentCalendarId === 'overlay') handleSwitchCalendar(calendarList[0]?.id || 'default');
+                        setIsCalendarPickerOpen(false);
+                      }}
+                      className="w-full py-1.5 border border-[#E9E9E6] text-gray-500 hover:bg-gray-50 rounded text-[11px] font-bold"
                     >
                       겹쳐보기 끄기
                     </button>

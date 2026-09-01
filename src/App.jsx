@@ -178,7 +178,15 @@ export default function App() {
   const [newCalendarIsPersonal, setNewCalendarIsPersonal] = useState(false); // 🔑 [신규] 생성 시 공유/개인 선택
   const isPersonalCalendarId = (id) => personalCalendarList.some((c) => c.id === id); // 🔑 [신규]
   const [isCalendarPickerOpen, setIsCalendarPickerOpen] = useState(false); // 🔑 [신규] 겹쳐보기 선택 팝업
-  const [overlayCalendarIds, setOverlayCalendarIds] = useState([]); // 🔑 겹쳐보기 선택된 캘린더 id 목록 (비어있으면 일반 모드)
+  // 🔑 [수정] 겹쳐보기 선택 상태를 이 컴퓨터에 저장 — 앱을 껐다 켜도 그대로 유지됨
+  const [overlayCalendarIds, setOverlayCalendarIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('overlay_calendar_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [addEventTargetCalendarId, setAddEventTargetCalendarId] = useState(''); // 🔑 [신규] 겹쳐보기 모드에서 새 일정을 등록할 캘린더 선택
   const OVERLAY_COLORS = ['#3B82F6', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#EF4444', '#14B8A6'];
   const getCalendarMeta = (calId) => {
@@ -306,11 +314,9 @@ export default function App() {
 
   // 🔑 [신규] 공유 메모장 — 전교 공유, 실시간 동기화
   const [sharedMemos, setSharedMemos] = useState([]);
-  const [isMemoFormOpen, setIsMemoFormOpen] = useState(false);
-  const [editingMemoId, setEditingMemoId] = useState(null);
-  const [memoFormTitle, setMemoFormTitle] = useState('');
-  const [memoFormContent, setMemoFormContent] = useState('');
-  const [memoFormColor, setMemoFormColor] = useState('yellow');
+  const [personalMemos, setPersonalMemos] = useState([]); // 🔑 개인 메모 (localStorage)
+  const [editingMemoId, setEditingMemoId] = useState(null); // 🔑 지금 인라인 편집 중인 메모 id
+  const [memoOrder, setMemoOrder] = useState([]); // 🔑 [신규] 메모 표시 순서 — 이 컴퓨터에만 저장 (id 배열)
   // 🔑 [신규] 담임반/본인 이름 — 시간표·성적분석에서 자동 선택용 (이 PC에만 저장)
   const [myClassNum, setMyClassNum] = useState(() => localStorage.getItem('my_class_num') || '');
   const [myTeacherName, setMyTeacherName] = useState(() => localStorage.getItem('my_teacher_name') || '');
@@ -381,6 +387,21 @@ export default function App() {
     }
   }, []);
 
+  // 🔑 [신규] 겹쳐보기 선택 상태가 바뀔 때마다 이 컴퓨터에 저장
+  useEffect(() => {
+    localStorage.setItem('overlay_calendar_ids', JSON.stringify(overlayCalendarIds));
+  }, [overlayCalendarIds]);
+
+  // 🔑 [신규] 저장된 겹쳐보기 목록 중, 이미 삭제된 캘린더가 있으면 자동으로 정리
+  useEffect(() => {
+    if (overlayCalendarIds.length === 0) return;
+    const validIds = new Set([...calendarList, ...personalCalendarList].map((c) => c.id));
+    const cleaned = overlayCalendarIds.filter((id) => validIds.has(id));
+    if (cleaned.length !== overlayCalendarIds.length) {
+      setOverlayCalendarIds(cleaned);
+    }
+  }, [calendarList, personalCalendarList]);
+
   // 🔑 [신규] 앱 버전 정보를 받아와 헤더에 표시
   useEffect(() => {
     if (window.electronAPI?.getAppVersion) {
@@ -437,7 +458,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (overlayCalendarIds.length > 0) return; // 🔑 [신규] 겹쳐보기 모드면 아래 별도 이펙트가 처리
+    if (currentCalendarId === 'overlay') return; // 🔑 [수정] "겹쳐보기" 탭이 활성화됐을 때만 아래 별도 이펙트가 처리
     if (currentCalendarId === 'google') return; // 🔑 구글 캘린더는 별도 이펙트에서 처리
 
     // 🔑 개인 캘린더면 Firestore 대신 이 컴퓨터에 저장된 데이터를 사용
@@ -460,13 +481,14 @@ export default function App() {
 
   // 🔑 [신규] 일정 등록 모달이 열릴 때, 겹쳐보기 모드면 기본 선택 캘린더를 첫 번째 것으로 세팅
   useEffect(() => {
-    if (isAddModalOpen && overlayCalendarIds.length > 0 && !addEventTargetCalendarId) {
+    if (isAddModalOpen && currentCalendarId === 'overlay' && !addEventTargetCalendarId) {
       setAddEventTargetCalendarId(overlayCalendarIds[0]);
     }
-  }, [isAddModalOpen, overlayCalendarIds]);
+  }, [isAddModalOpen, overlayCalendarIds, currentCalendarId]);
 
   // 🔑 겹쳐보기 모드 — 선택된 여러 캘린더의 일정을 동시에 구독해서 하나로 합침
   useEffect(() => {
+    if (currentCalendarId !== 'overlay') return; // 🔑 [수정] "겹쳐보기" 탭을 보고 있을 때만 동작
     if (overlayCalendarIds.length === 0) return;
 
     const sharedIds = overlayCalendarIds.filter((id) => !isPersonalCalendarId(id) && id !== 'google');
@@ -505,7 +527,7 @@ export default function App() {
     );
 
     return () => unsubscribes.forEach((unsub) => unsub());
-  }, [overlayCalendarIds, syncStatus, personalCalendarList]);
+  }, [overlayCalendarIds, syncStatus, personalCalendarList, currentCalendarId]);
 
   // 🔑 유용한 기능 링크 — 전교 공유, 실시간 동기화
   useEffect(() => {
@@ -523,10 +545,40 @@ export default function App() {
     const memosRef = collection(db, 'artifacts', appId, 'public', 'data', 'sharedMemos');
     return onSnapshot(memosRef, (snapshot) => {
       const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
-      // 🔑 sortOrder가 있으면 그 순서대로, 없으면(예전 데이터) 최신순으로 뒤에 배치
-      setSharedMemos(items.sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999)));
+      // 🔑 표시 순서는 이제 각자 로컬 순서(memoOrder)로 정하므로, 여기선 최신순 정도로만 기본 정렬
+      setSharedMemos(items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
     });
   }, [syncStatus]);
+
+  // 🔑 [신규] 개인 메모 불러오기 (이 컴퓨터에만 저장)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('personal_memos');
+      if (saved) setPersonalMemos(JSON.parse(saved));
+    } catch (e) {
+      // 무시
+    }
+  }, []);
+
+  const savePersonalMemos = (updated) => {
+    setPersonalMemos(updated);
+    localStorage.setItem('personal_memos', JSON.stringify(updated));
+  };
+
+  // 🔑 [신규] 메모 순서 불러오기 (이 컴퓨터에만 저장 — 공유 안 됨)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('memo_order_v1');
+      if (saved) setMemoOrder(JSON.parse(saved));
+    } catch (e) {
+      // 무시
+    }
+  }, []);
+
+  const saveMemoOrder = (order) => {
+    setMemoOrder(order);
+    localStorage.setItem('memo_order_v1', JSON.stringify(order));
+  };
 
   // 🔑 [신규] 야자감독 구글시트 동기화 설정 — 전교 공유
   useEffect(() => {
@@ -958,67 +1010,97 @@ export default function App() {
     setIsLinkFormOpen(true);
   };
 
-  // 🔑 [신규] 공유 메모장 등록/수정
-  const handleSaveMemo = async () => {
-    const title = memoFormTitle.trim();
-    if (!title) return showToast("제목을 입력해 주세요.", "error");
-
-    if (syncStatus === 'connected' && db) {
-      const memosRef = collection(db, 'artifacts', appId, 'public', 'data', 'sharedMemos');
-
-      if (editingMemoId) {
-        const payload = { title, content: memoFormContent.trim(), color: memoFormColor };
-        await setDoc(doc(memosRef, editingMemoId), payload, { merge: true });
-      } else {
-        // 🔑 새 메모는 맨 앞(순서 0)에 삽입, 기존 메모들은 순서를 한 칸씩 뒤로 밀어줌
-        const batch = writeBatch(db);
-        sharedMemos.forEach((memo, idx) => {
-          batch.update(doc(memosRef, memo.id), { sortOrder: idx + 1 });
-        });
-        const newMemoRef = doc(memosRef);
-        batch.set(newMemoRef, {
-          title, content: memoFormContent.trim(), color: memoFormColor,
-          createdAt: new Date().toISOString(), sortOrder: 0,
-        });
-        await batch.commit();
-      }
-    }
-    setMemoFormTitle(''); setMemoFormContent(''); setMemoFormColor('yellow'); setEditingMemoId(null); setIsMemoFormOpen(false);
-    showToast(editingMemoId ? "메모가 수정되었습니다." : "메모가 등록되었습니다.", "success");
-  };
-
-  const handleDeleteMemo = async (id) => {
-    if (!window.confirm("이 메모를 삭제할까요?")) return;
-    if (syncStatus === 'connected' && db) {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', id));
-    }
+  // 🔑 [신규] "+"를 누르면 빈 개인 메모를 즉시 만들고(기본값: 개인), 그 카드를 바로 인라인 편집 모드로 진입시킴
+  const handleStartNewMemo = () => {
+    const newMemo = { id: crypto.randomUUID(), title: '', content: '', color: 'yellow', createdAt: new Date().toISOString() };
+    savePersonalMemos([newMemo, ...personalMemos]);
+    setEditingMemoId(newMemo.id);
   };
 
   const handleStartEditMemo = (memo) => {
     setEditingMemoId(memo.id);
-    setMemoFormTitle(memo.title);
-    setMemoFormContent(memo.content || '');
-    setMemoFormColor(memo.color || 'yellow');
-    setIsMemoFormOpen(true);
   };
 
-  const handleStartNewMemo = () => {
-    setEditingMemoId(null);
-    setMemoFormTitle(''); setMemoFormContent(''); setMemoFormColor('yellow');
-    setIsMemoFormOpen(true);
-  };
+  // 🔑 [신규] 인라인 편집 완료 — 제목이 비어있으면 자동 삭제, 아니면 지금 저장된 위치(공유/개인)에 그대로 저장
+  const handleFinishEditMemo = async (memoId, { title, content, color }) => {
+    const trimmedTitle = title.trim();
+    const isShared = sharedMemos.some((m) => m.id === memoId);
 
-  // 🔑 [신규] 메모 드래그 순서 변경 — 드롭된 시점에 새 순서를 Firestore에 반영
-  const handleReorderMemos = async (reorderedMemos) => {
-    setSharedMemos(reorderedMemos); // 🔑 즉시 화면 반영 (낙관적 업데이트)
-    if (syncStatus === 'connected' && db) {
-      const memosRef = collection(db, 'artifacts', appId, 'public', 'data', 'sharedMemos');
-      const batch = writeBatch(db);
-      reorderedMemos.forEach((memo, idx) => {
-        batch.update(doc(memosRef, memo.id), { sortOrder: idx });
-      });
-      await batch.commit();
+    if (!trimmedTitle) {
+      if (isShared) {
+        if (syncStatus === 'connected' && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', memoId));
+      } else {
+        savePersonalMemos(personalMemos.filter((m) => m.id !== memoId));
+      }
+      setEditingMemoId(null);
+      return;
     }
+
+    if (isShared) {
+      if (syncStatus === 'connected' && db) {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', memoId), { title: trimmedTitle, content: content.trim(), color }, { merge: true });
+      }
+    } else {
+      savePersonalMemos(personalMemos.map((m) => m.id === memoId ? { ...m, title: trimmedTitle, content: content.trim(), color } : m));
+    }
+    setEditingMemoId(null);
+  };
+
+  const handleDeleteMemo = async (id) => {
+    if (!window.confirm("이 메모를 삭제할까요?")) return;
+    const isShared = sharedMemos.some((m) => m.id === id);
+    if (isShared) {
+      if (syncStatus === 'connected' && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', id));
+    } else {
+      savePersonalMemos(personalMemos.filter((m) => m.id !== id));
+    }
+  };
+
+  // 🔑 공유 ↔ 개인 메모 전환 (순서는 로컬에서 그대로 유지되므로 별도 처리 불필요)
+  const handleToggleMemoShare = async (memo, makeShared) => {
+    if (makeShared) {
+      // 개인 → 공유: 로컬에서 지우고 Firestore에 새로 등록
+      savePersonalMemos(personalMemos.filter((m) => m.id !== memo.id));
+      if (syncStatus === 'connected' && db) {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', memo.id), {
+          title: memo.title, content: memo.content, color: memo.color, createdAt: memo.createdAt || new Date().toISOString(),
+        });
+      }
+    } else {
+      // 공유 → 개인: Firestore에서 지우고 로컬에 새로 등록
+      if (syncStatus === 'connected' && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', memo.id));
+      savePersonalMemos([{ id: memo.id, title: memo.title, content: memo.content, color: memo.color, createdAt: memo.createdAt || new Date().toISOString() }, ...personalMemos]);
+    }
+  };
+
+  // 🔑 [신규] 화면에 보여줄 전체 메모 목록 (공유 + 개인 합침) → 이 컴퓨터의 순서(memoOrder)대로 정렬
+  const rawMemos = [
+    ...sharedMemos.map((m) => ({ ...m, isSharedMemo: true })),
+    ...personalMemos.map((m) => ({ ...m, isSharedMemo: false })),
+  ];
+  const rawMemoMap = Object.fromEntries(rawMemos.map((m) => [m.id, m]));
+  const allMemos = [
+    ...memoOrder.filter((id) => rawMemoMap[id]).map((id) => rawMemoMap[id]), // 🔑 내 순서대로
+    ...rawMemos.filter((m) => !memoOrder.includes(m.id)), // 🔑 아직 내 순서 목록에 없는(새로 생긴) 메모는 뒤에 임시로
+  ];
+
+  // 🔑 [신규] 새로 생긴 메모(다른 선생님이 만든 것 포함)를 감지해서, 내 순서 목록 맨 앞에 자동 등록
+  useEffect(() => {
+    const currentIds = rawMemos.map((m) => m.id);
+    const newIds = currentIds.filter((id) => !memoOrder.includes(id));
+    if (newIds.length > 0) {
+      saveMemoOrder([...newIds, ...memoOrder.filter((id) => currentIds.includes(id))]); // 🔑 새 항목은 앞에, 삭제된 항목은 목록에서 자연스레 정리
+    } else {
+      // 🔑 삭제된 메모가 있으면 순서 목록에서도 정리
+      const cleaned = memoOrder.filter((id) => currentIds.includes(id));
+      if (cleaned.length !== memoOrder.length) saveMemoOrder(cleaned);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedMemos, personalMemos]);
+
+  // 🔑 메모 드래그 순서 변경 — 이 컴퓨터의 로컬 순서만 갱신 (Firestore에는 저장 안 함 → 공유되지 않음)
+  const handleReorderMemos = (reorderedMemos) => {
+    saveMemoOrder(reorderedMemos.map((m) => m.id));
   };
 
   // 🔑 [신규] 야자감독 구글시트 동기화 설정 저장 (전교 공유)
@@ -1183,9 +1265,9 @@ export default function App() {
       return;
     }
 
-    // 🔑 [신규] 겹쳐보기 모드 — 사용자가 선택한 캘린더로 저장
-    const targetCalId = overlayCalendarIds.length > 0 ? addEventTargetCalendarId : currentCalendarId;
-    if (overlayCalendarIds.length > 0 && !targetCalId) {
+    // 🔑 [수정] "겹쳐보기" 탭일 때만 사용자가 선택한 캘린더로 저장
+    const targetCalId = currentCalendarId === 'overlay' ? addEventTargetCalendarId : currentCalendarId;
+    if (currentCalendarId === 'overlay' && !targetCalId) {
       return showToast("일정을 등록할 캘린더를 선택해 주세요.", "error");
     }
 
@@ -1200,7 +1282,7 @@ export default function App() {
       })();
       const { _calId, ...cleanEv } = newEv;
       localStorage.setItem(`personal_calendar_events_${targetCalId}`, JSON.stringify([...savedList, cleanEv]));
-      setEvents(overlayCalendarIds.length > 0 ? [...events, newEv] : [...savedList, cleanEv]);
+      setEvents(currentCalendarId === 'overlay' ? [...events, newEv] : [...savedList, cleanEv]);
       showToast("일정이 개인 캘린더에 등록되었습니다.", "success");
       handleCloseAddModal();
       return;
@@ -1228,13 +1310,13 @@ export default function App() {
       return;
     }
 
-    // 🔑 [신규] 겹쳐보기 모드 — 일정 자체에 표시된 소속 캘린더(_calId)로 저장
-    const targetCalId = overlayCalendarIds.length > 0 ? editEventForm._calId : currentCalendarId;
+    // 🔑 [수정] "겹쳐보기" 탭일 때만 일정 자체에 표시된 소속 캘린더(_calId)로 저장
+    const targetCalId = currentCalendarId === 'overlay' ? editEventForm._calId : currentCalendarId;
     const { _calId, ...cleanEditForm } = editEventForm;
 
     if (isPersonalCalendarId(targetCalId)) {
       const updated = events.map(ev => ev.id === cleanEditForm.id ? { ...ev, ...cleanEditForm, _calId } : ev);
-      if (overlayCalendarIds.length > 0) { setEvents(updated); localStorage.setItem(`personal_calendar_events_${targetCalId}`, JSON.stringify(updated.filter(e => e._calId === targetCalId).map(({ _calId, ...rest }) => rest))); }
+      if (currentCalendarId === 'overlay') { setEvents(updated); localStorage.setItem(`personal_calendar_events_${targetCalId}`, JSON.stringify(updated.filter(e => e._calId === targetCalId).map(({ _calId, ...rest }) => rest))); }
       else savePersonalCalendarEvents(targetCalId, updated);
       setIsEditing(false); setIsDetailModalOpen(false); showToast("수정 완료되었습니다.", "success");
       return;
@@ -1259,12 +1341,12 @@ export default function App() {
       return;
     }
 
-    // 🔑 [신규] 겹쳐보기 모드 대응
+    // 🔑 [수정] "겹쳐보기" 탭일 때만 대응
     const targetEv = events.find((e) => e.id === id);
-    const targetCalId = overlayCalendarIds.length > 0 ? targetEv?._calId : currentCalendarId;
+    const targetCalId = currentCalendarId === 'overlay' ? targetEv?._calId : currentCalendarId;
 
     if (isPersonalCalendarId(targetCalId)) {
-      if (overlayCalendarIds.length > 0) {
+      if (currentCalendarId === 'overlay') {
         const updated = events.filter(ev => ev.id !== id);
         setEvents(updated);
         localStorage.setItem(`personal_calendar_events_${targetCalId}`, JSON.stringify(updated.filter(e => e._calId === targetCalId).map(({ _calId, ...rest }) => rest)));
@@ -1563,14 +1645,12 @@ export default function App() {
               editingLinkId={editingLinkId}
               handleSaveUsefulLink={handleSaveUsefulLink} handleDeleteUsefulLink={handleDeleteUsefulLink}
               handleStartEditLink={handleStartEditLink} handleStartNewLink={handleStartNewLink}
-              sharedMemos={sharedMemos} isMemoFormOpen={isMemoFormOpen} setIsMemoFormOpen={setIsMemoFormOpen}
-              memoFormTitle={memoFormTitle} setMemoFormTitle={setMemoFormTitle}
-              memoFormContent={memoFormContent} setMemoFormContent={setMemoFormContent}
-              memoFormColor={memoFormColor} setMemoFormColor={setMemoFormColor}
-              editingMemoId={editingMemoId}
-              handleSaveMemo={handleSaveMemo} handleDeleteMemo={handleDeleteMemo}
+              sharedMemos={allMemos} editingMemoId={editingMemoId}
+              handleDeleteMemo={handleDeleteMemo}
               handleStartEditMemo={handleStartEditMemo} handleStartNewMemo={handleStartNewMemo}
+              handleFinishEditMemo={handleFinishEditMemo}
               handleReorderMemos={handleReorderMemos}
+              handleToggleMemoShare={handleToggleMemoShare}
               activeDayMeal={activeDayMeal} messengerInput={messengerInput} setMessengerInput={setMessengerInput}
               handleAnalyzeMessengerText={handleAnalyzeMessengerText} isAnalyzing={isAnalyzing} parsedProposals={parsedProposals}
               setParsedProposals={setParsedProposals} categories={categories} categoryOrder={categoryOrder} NOTION_PALETTES={NOTION_PALETTES}
@@ -1706,7 +1786,7 @@ export default function App() {
             ) : (
               <form onSubmit={handleAddEventSubmit} className="space-y-4 text-sm">
                 {/* 🔑 [신규] 겹쳐보기 모드일 때만 등록할 캘린더 선택 */}
-                {overlayCalendarIds.length > 0 && (
+                {currentCalendarId === 'overlay' && (
                   <div className="flex flex-col">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
                       <Layers className="w-3.5 h-3.5 text-blue-500" /> 등록할 캘린더 *
