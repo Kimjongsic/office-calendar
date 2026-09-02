@@ -463,6 +463,7 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
   const [uploadError, setUploadError] = useState("");
   const [isIncompatible, setIsIncompatible] = useState(false); // 🔑 저장된 데이터가 예전 버전 형식이라 못 불러올 때
   const [chartsReady, setChartsReady] = useState(false); // 🔑 모달이 완전히 자리잡은 뒤에만 차트를 그려서 깜빡임 방지
+  const [isStudentChosen, setIsStudentChosen] = useState(false); // 🔑 [신규] 모달을 열 때마다 초기화 — 명시적으로 학생을 선택해야만 정보가 보임
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -762,6 +763,58 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
                 {uploadError}
               </div>
             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 🔑 [신규] 학생을 명시적으로 선택하기 전까지는, 특정 학생 정보를 바로 보여주지 않고 선택 화면을 먼저 표시
+  if (!isStudentChosen) {
+    const classNumbersForPicker = Object.keys(uploaded).map(Number).sort((a, b) => a - b);
+    const classMapForPicker = uploaded[classNum] || {};
+    const studentNumbersForPicker = Object.keys(classMapForPicker).map(Number).sort((a, b) => a - b);
+    const effectiveStudentNumForPicker = studentNumbersForPicker.includes(studentNum) ? studentNum : studentNumbersForPicker[0];
+
+    return (
+      <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={onClose}>
+        <div className="relative bg-[#F5F6F8] rounded-xl shadow-2xl w-full max-w-sm p-8" onClick={(e) => e.stopPropagation()}>
+          <CloseButton />
+          <div style={{ textAlign: "center" }}>
+            <h1 style={{ fontSize: "19px", fontWeight: 800, color: "#1F3A5F", margin: "0 0 8px" }}>
+              학생을 선택해주세요
+            </h1>
+            <p style={{ fontSize: "13px", color: "#6B7280", margin: "0 0 24px" }}>
+              개인정보 보호를 위해, 학생을 직접 선택해야 성적 정보가 표시됩니다.
+            </p>
+
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center", marginBottom: "16px" }}>
+              <select
+                value={classNum}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setClassNum(v);
+                  const nums = Object.keys(uploaded[v] || {}).map(Number).sort((a, b) => a - b);
+                  setStudentNum(nums[0]);
+                }}
+                style={selectStyle}
+              >
+                {classNumbersForPicker.map((c) => <option key={c} value={c}>{c}반</option>)}
+              </select>
+              <select value={effectiveStudentNumForPicker} onChange={(e) => setStudentNum(Number(e.target.value))} style={selectStyle}>
+                {studentNumbersForPicker.map((n) => {
+                  const nm = classMapForPicker[n]?.name;
+                  return <option key={n} value={n}>{n}번{nm ? ` ${nm}` : ''}</option>;
+                })}
+              </select>
+            </div>
+
+            <button
+              onClick={() => setIsStudentChosen(true)}
+              style={{ ...btnStyle, width: "100%", background: "#1F3A5F", color: "#fff", border: "1px solid #1F3A5F", padding: "10px" }}
+            >
+              선택한 학생 정보 보기
+            </button>
           </div>
         </div>
       </div>
