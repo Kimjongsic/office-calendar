@@ -89,6 +89,38 @@ ipcMain.on('set-opacity', (event, value) => {
 ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
 ipcMain.handle('get-app-version', () => app.getVersion());
 
+// 🔑 [신규] 예약 종료 — Windows 내장 shutdown 명령 사용 (앱이 꺼져 있어도 OS 차원에서 실행됨)
+const { exec } = require('child_process');
+let scheduledShutdownAt = null; // 메인 프로세스 메모리에 보관 (앱 재시작 시 초기화됨 — 렌더러가 localStorage로 보완)
+
+ipcMain.handle('schedule-shutdown', (event, targetTimeISO) => {
+  const target = new Date(targetTimeISO);
+  const seconds = Math.round((target - new Date()) / 1000);
+  if (seconds <= 0) return { success: false, error: '이미 지난 시간이에요.' };
+
+  return new Promise((resolve) => {
+    exec(`shutdown /s /t ${seconds}`, (err) => {
+      if (err) {
+        console.error('예약 종료 설정 실패:', err);
+        resolve({ success: false, error: err.message });
+        return;
+      }
+      scheduledShutdownAt = target.toISOString();
+      resolve({ success: true, scheduledAt: scheduledShutdownAt });
+    });
+  });
+});
+
+ipcMain.handle('cancel-shutdown', () => {
+  return new Promise((resolve) => {
+    exec('shutdown /a', (err) => {
+      scheduledShutdownAt = null;
+      // 🔑 예약이 원래 없었을 때도 shutdown /a는 에러를 내므로, 이 경우는 실패로 취급하지 않음
+      resolve({ success: true });
+    });
+  });
+});
+
 // 🔑 [신규] Windows 시작 시 자동 실행 여부 조회/설정
 ipcMain.handle('get-auto-launch', () => {
   return app.getLoginItemSettings().openAtLogin;

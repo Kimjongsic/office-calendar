@@ -43,7 +43,8 @@ import {
   Edit2,
   Calculator,
   Layers,
-  StickyNote
+  StickyNote,
+  PowerOff
 } from 'lucide-react';
 
 import DashboardHeader from './components/DashboardHeader';
@@ -276,7 +277,8 @@ export default function App() {
   const [editingProposalId, setEditingProposalId] = useState(null); // 🔑 분석 카드 수정 모드 추적
 
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
-  const [isAutoLaunchOn, setIsAutoLaunchOn] = useState(false); // 🔑 [신규] 컴퓨터 시작 시 자동 실행 여부
+  const [isAutoLaunchOn, setIsAutoLaunchOn] = useState(false); // 🔑 컴퓨터 시작 시 자동 실행 여부
+  const [scheduledShutdownAt, setScheduledShutdownAt] = useState(null); // 🔑 [신규] 예약 종료 시각 (ISO 문자열, 없으면 null)
   const [isMoveLocked, setIsMovelocked] = useState(false);
   const [opacityValue, setOpacityValue] = useState(1.0);
   const [isOpacityDropdownOpen, setIsOpacityDropdownOpen] = useState(false);
@@ -416,6 +418,40 @@ export default function App() {
       window.electronAPI.getAutoLaunch().then(setIsAutoLaunchOn).catch(() => {});
     }
   }, []);
+
+  // 🔑 [신규] 예약 종료 — 이 컴퓨터에 저장해둔 예약 시각 불러오기 (지난 시각이면 자동 정리)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('scheduled_shutdown_at');
+      if (saved && new Date(saved) > new Date()) {
+        setScheduledShutdownAt(saved);
+      } else if (saved) {
+        localStorage.removeItem('scheduled_shutdown_at');
+      }
+    } catch (e) {
+      // 무시
+    }
+  }, []);
+
+  const handleScheduleShutdown = async (targetTimeISO) => {
+    if (!window.electronAPI?.scheduleShutdown) return;
+    const result = await window.electronAPI.scheduleShutdown(targetTimeISO);
+    if (result?.success) {
+      setScheduledShutdownAt(result.scheduledAt);
+      localStorage.setItem('scheduled_shutdown_at', result.scheduledAt);
+      showToast("컴퓨터 종료가 예약되었습니다.", "success");
+    } else {
+      showToast(result?.error || "예약에 실패했습니다.", "error");
+    }
+  };
+
+  const handleCancelShutdown = async () => {
+    if (!window.electronAPI?.cancelShutdown) return;
+    await window.electronAPI.cancelShutdown();
+    setScheduledShutdownAt(null);
+    localStorage.removeItem('scheduled_shutdown_at');
+    showToast("예약 종료가 취소되었습니다.", "info");
+  };
 
   const handleToggleAutoLaunch = async () => {
     if (!window.electronAPI?.setAutoLaunch) return;
@@ -1622,6 +1658,7 @@ export default function App() {
         handleQuitAndInstall={handleQuitAndInstall}
         isAutoLaunchOn={isAutoLaunchOn}
         handleToggleAutoLaunch={handleToggleAutoLaunch}
+        scheduledShutdownAt={scheduledShutdownAt} handleScheduleShutdown={handleScheduleShutdown} handleCancelShutdown={handleCancelShutdown}
       />
 
       <div className="flex-1 flex flex-row min-w-0 min-h-0 w-full relative overflow-hidden gap-1.5">
@@ -1701,6 +1738,10 @@ export default function App() {
           <button type="button" onClick={() => setIsGradesDashboardOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isGradesDashboardOpen ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="학생 성적 대시보드"><BarChart3 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('tools') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('gradeConv')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('gradeConv') ? 'bg-rose-50 border-rose-200 text-rose-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="등급 환산 계산기"><Calculator className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('shutdown')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('shutdown') ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="예약 종료">
+            <PowerOff className="w-5 h-5" />
+            {scheduledShutdownAt && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>}
+          </button>
           <button type="button" onClick={() => toggleSidePanel('memo')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('memo') ? 'bg-yellow-50 border-yellow-200 text-yellow-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 메모장"><StickyNote className="w-5 h-5" /></button>
         </div>
       </div>
