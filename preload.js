@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setOpacity: (value) => ipcRenderer.send('set-opacity', value),
   openExternal: (url) => ipcRenderer.send('open-external', url),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
+  setAutoLaunch: (enable) => ipcRenderer.invoke('set-auto-launch', enable),
   startUpdateDownload: () => ipcRenderer.send('start-update-download'),
   quitAndInstallUpdate: () => ipcRenderer.send('quit-and-install-update'),
   savePageAsPdf: (defaultFileName, contentSizePx) => ipcRenderer.invoke('save-page-as-pdf', defaultFileName, contentSizePx),

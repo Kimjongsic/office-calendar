@@ -276,6 +276,7 @@ export default function App() {
   const [editingProposalId, setEditingProposalId] = useState(null); // 🔑 분석 카드 수정 모드 추적
 
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
+  const [isAutoLaunchOn, setIsAutoLaunchOn] = useState(false); // 🔑 [신규] 컴퓨터 시작 시 자동 실행 여부
   const [isMoveLocked, setIsMovelocked] = useState(false);
   const [opacityValue, setOpacityValue] = useState(1.0);
   const [isOpacityDropdownOpen, setIsOpacityDropdownOpen] = useState(false);
@@ -408,6 +409,26 @@ export default function App() {
       window.electronAPI.getAppVersion().then(setAppVersion).catch(() => {});
     }
   }, []);
+
+  // 🔑 [신규] 컴퓨터 시작 시 자동 실행 설정 초기 상태 조회
+  useEffect(() => {
+    if (window.electronAPI?.getAutoLaunch) {
+      window.electronAPI.getAutoLaunch().then(setIsAutoLaunchOn).catch(() => {});
+    }
+  }, []);
+
+  const handleToggleAutoLaunch = async () => {
+    if (!window.electronAPI?.setAutoLaunch) return;
+    try {
+      const newValue = !isAutoLaunchOn;
+      const result = await window.electronAPI.setAutoLaunch(newValue);
+      setIsAutoLaunchOn(result);
+      showToast(result ? "컴퓨터 시작 시 자동으로 실행됩니다." : "자동 실행이 꺼졌습니다.", "success");
+    } catch (err) {
+      console.error("자동 실행 설정 실패:", err);
+      showToast("자동 실행 설정에 실패했습니다.", "error");
+    }
+  };
 
   // 🔑 [신규] 이전에 연결해둔 구글 계정이 있는지 확인 (이 PC에만 저장된 정보)
   useEffect(() => {
@@ -1599,6 +1620,8 @@ export default function App() {
         setIsUpdateModalOpen={setIsUpdateModalOpen}
         handleStartUpdateDownload={handleStartUpdateDownload}
         handleQuitAndInstall={handleQuitAndInstall}
+        isAutoLaunchOn={isAutoLaunchOn}
+        handleToggleAutoLaunch={handleToggleAutoLaunch}
       />
 
       <div className="flex-1 flex flex-row min-w-0 min-h-0 w-full relative overflow-hidden gap-1.5">
@@ -2034,7 +2057,7 @@ export default function App() {
                   </div>
                   <div className="space-y-1">
                     <p className="text-xs font-bold text-gray-400 uppercase">상세 메모</p>
-                    <div className="bg-white border border-[#E9E9E6] p-3 rounded-md text-sm text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto break-all">{selectedEvent.memo || '등록된 내용이 없습니다.'}</div>
+                    <div className="bg-white border border-[#E9E9E6] p-3 rounded-md text-sm text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto break-all select-text cursor-text">{selectedEvent.memo || '등록된 내용이 없습니다.'}</div>
                   </div>
                 </div>
                 <div className="flex items-center justify-between border-t border-[#E9E9E6] pt-4">

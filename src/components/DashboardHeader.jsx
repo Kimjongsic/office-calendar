@@ -1,12 +1,13 @@
 // src/components/DashboardHeader.jsx
 import React from 'react';
-import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper } from 'lucide-react';
+import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power } from 'lucide-react';
 
 export default function DashboardHeader({
   syncStatus, isAlwaysOnTop, isMoveLocked, opacityValue, isOpacityDropdownOpen,
   setIsOpacityDropdownOpen, handleToggleAlwaysOnTop, handleToggleMoveLock,
   handleOpacityChange, handleMinimize, handleMaximize, handleClose, appVersion,
-  updateInfo, isUpdateModalOpen, setIsUpdateModalOpen, handleStartUpdateDownload, handleQuitAndInstall
+  updateInfo, isUpdateModalOpen, setIsUpdateModalOpen, handleStartUpdateDownload, handleQuitAndInstall,
+  isAutoLaunchOn, handleToggleAutoLaunch
 }) {
   const hasUpdateAvailable = updateInfo.status === 'available' || updateInfo.status === 'downloading' || updateInfo.status === 'downloaded';
   // 🔑 electronAPI 직접 호출 제거: IPC 호출은 App.jsx의 handleX 함수들이 이미 담당하고 있어서
@@ -59,6 +60,16 @@ export default function DashboardHeader({
         className="flex items-center gap-1 shrink-0 relative z-50"
         style={{ WebkitAppRegion: 'no-drag', appRegion: 'no-drag' }}
       >
+        {/* 🔑 [신규] 컴퓨터 시작 시 자동 실행 버튼 */}
+        <button 
+          type="button" 
+          onClick={handleToggleAutoLaunch} 
+          className={`p-1.5 rounded-md transition-colors cursor-pointer ${isAutoLaunchOn ? 'bg-blue-50 text-blue-600 font-bold' : 'text-gray-500 hover:bg-gray-100'}`}
+          title={isAutoLaunchOn ? "컴퓨터 시작 시 자동 실행: 켜짐" : "컴퓨터 시작 시 자동 실행: 꺼짐"}
+        >
+          <Power className="w-4 h-4" />
+        </button>
+
         {/* 항상 위에 표시 버튼 */}
         <button 
           type="button" 

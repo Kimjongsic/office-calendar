@@ -89,6 +89,19 @@ ipcMain.on('set-opacity', (event, value) => {
 ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
 ipcMain.handle('get-app-version', () => app.getVersion());
 
+// 🔑 [신규] Windows 시작 시 자동 실행 여부 조회/설정
+ipcMain.handle('get-auto-launch', () => {
+  return app.getLoginItemSettings().openAtLogin;
+});
+
+ipcMain.handle('set-auto-launch', (event, enable) => {
+  app.setLoginItemSettings({
+    openAtLogin: enable,
+    path: process.execPath, // 🔑 패키징된 실행 파일 경로 자동 사용
+  });
+  return app.getLoginItemSettings().openAtLogin;
+});
+
 // 🔑 [신규] 지금 화면(렌더러)을 그대로 PDF로 저장 — Chromium 실제 렌더러 사용이라 oklch 등 모든 CSS를 정상 처리함
 ipcMain.handle('save-page-as-pdf', async (event, defaultFileName, contentSizePx) => {
   if (!win) return { success: false };
