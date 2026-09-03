@@ -158,9 +158,21 @@ export default React.memo(function SideAccordionPanel({
   const [gradeConvInput, setGradeConvInput] = useState('3.00'); // 🔑 등급 환산 계산기 입력값
   const [gradeConvMode, setGradeConvMode] = useState('5to9'); // 🔑 '5to9' 또는 '9to5'
   const [shutdownTimeInput, setShutdownTimeInput] = useState(''); // 🔑 예약 종료 시각 입력값
+
+  // 🔑 [신규] 예약 종료 패널이 열릴 때, 아직 아무것도 안 입력했으면 오늘 날짜로 기본값 채워둠
+  useEffect(() => {
+    if (activeSidePanel.includes('shutdown') && !shutdownTimeInput && !scheduledShutdownAt) {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      // 🔑 datetime-local input 형식: YYYY-MM-DDTHH:mm
+      setShutdownTimeInput(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSidePanel]);
   const [shutdownNowTick, setShutdownNowTick] = useState(Date.now()); // 🔑 남은 시간 표시용 1분마다 갱신 (다른 곳의 nowTick과 이름 충돌 방지)
   const [shutdownPresets, setShutdownPresets] = useState([]); // 🔑 [신규] 자주 쓰는 예약 프리셋 { id, label, hour, minute }
   const [isAddingPreset, setIsAddingPreset] = useState(false);
+  const [isSchedulingShutdown, setIsSchedulingShutdown] = useState(false); // 🔑 [신규] "예약하기" 처리 중 표시
   const [presetLabelInput, setPresetLabelInput] = useState('');
   const [presetTimeInput, setPresetTimeInput] = useState('');
 
@@ -191,12 +203,14 @@ export default React.memo(function SideAccordionPanel({
     savePresets(shutdownPresets.filter((p) => p.id !== id));
   };
 
-  // 🔑 프리셋 클릭 시, 오늘 그 시각이 이미 지났으면 내일로 자동 계산해서 바로 예약
+  // 🔑 [수정] 프리셋 클릭 시 바로 예약하지 않고, "예약하기" 입력창에 시각만 채워넣음
+  // (오늘 그 시각이 이미 지났으면 내일로 자동 계산)
   const handleUsePreset = (preset) => {
     const now = new Date();
     const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), preset.hour, preset.minute, 0);
-    if (target <= now) target.setDate(target.getDate() + 1); // 🔑 이미 지난 시각이면 내일로
-    handleScheduleShutdown(target.toISOString());
+    if (target <= now) target.setDate(target.getDate() + 1);
+    const pad = (n) => String(n).padStart(2, '0');
+    setShutdownTimeInput(`${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`);
   };
 
   useEffect(() => {
@@ -1568,7 +1582,43 @@ export default React.memo(function SideAccordionPanel({
                 })()
               ) : (
                 <>
-                  {/* 🔑 [신규] 자주 쓰는 예약 프리셋 목록 */}
+                  {/* 🔑 예약하기 영역 */}
+                  <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg p-3 space-y-2">
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      지정한 시각에 이 컴퓨터가 자동으로 종료됩니다. 한 번만 실행되며, 반복되지 않습니다.
+                    </p>
+                    <input
+                      type="datetime-local"
+                      value={shutdownTimeInput}
+                      onChange={(e) => setShutdownTimeInput(e.target.value)}
+                      className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!shutdownTimeInput || isSchedulingShutdown) return;
+                        setIsSchedulingShutdown(true);
+                        try {
+                          await handleScheduleShutdown(new Date(shutdownTimeInput).toISOString());
+                        } finally {
+                          setIsSchedulingShutdown(false);
+                        }
+                      }}
+                      disabled={!shutdownTimeInput || isSchedulingShutdown}
+                      className="w-full py-1.5 bg-slate-700 hover:bg-slate-800 disabled:bg-gray-300 text-white rounded text-xs font-bold flex items-center justify-center gap-1.5"
+                    >
+                      {isSchedulingShutdown ? (
+                        <>
+                          <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                          예약하는 중...
+                        </>
+                      ) : (
+                        '예약하기'
+                      )}
+                    </button>
+                  </div>
+
+                  {/* 🔑 [수정] 자주 쓰는 예약 — 예약하기 영역 아래, 같은 폭의 카드 목록 (이름+시간 / 오른쪽 사용 버튼) */}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">자주 쓰는 예약</p>
@@ -1604,42 +1654,29 @@ export default React.memo(function SideAccordionPanel({
                     )}
 
                     {shutdownPresets.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="space-y-1.5">
                         {shutdownPresets.map((preset) => (
-                          <div key={preset.id} className="group flex items-center gap-1 bg-[#F7F7F5] hover:bg-slate-100 border border-[#E9E9E6] rounded-full pl-2.5 pr-1 py-1 transition-colors">
-                            <button type="button" onClick={() => handleUsePreset(preset)} className="text-[11px] font-bold text-gray-700">
-                              {preset.label} ({String(preset.hour).padStart(2, '0')}:{String(preset.minute).padStart(2, '0')})
+                          <div key={preset.id} className="group relative flex items-center justify-between gap-2 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg px-3 py-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs font-bold text-gray-700 truncate">{preset.label}</span>
+                              <span className="text-xs font-semibold text-gray-400 shrink-0">{String(preset.hour).padStart(2, '0')}:{String(preset.minute).padStart(2, '0')}</span>
+                            </div>
+                            <button type="button" onClick={() => handleUsePreset(preset)} className="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white rounded text-[11px] font-bold shrink-0">
+                              사용
                             </button>
-                            <button type="button" onClick={() => handleDeletePreset(preset.id)} className="p-0.5 text-gray-300 hover:text-rose-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                              <X className="w-3 h-3" />
+                            {/* 🔑 [수정] 카드 오른쪽 위에 겹쳐서 배치 — 평소엔 공간을 전혀 차지하지 않다가 호버 시에만 나타남 */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePreset(preset.id)}
+                              className="hidden group-hover:flex items-center justify-center absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border border-gray-300 rounded-full text-gray-400 hover:text-rose-600 hover:border-rose-300 shadow-xs"
+                              title="삭제"
+                            >
+                              <X className="w-2.5 h-2.5" />
                             </button>
                           </div>
                         ))}
                       </div>
                     )}
-                  </div>
-
-                  <div className="bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg p-3 space-y-2">
-                    <p className="text-[11px] text-gray-500 leading-relaxed">
-                      지정한 시각에 이 컴퓨터가 자동으로 종료됩니다. 한 번만 실행되며, 반복되지 않습니다.
-                    </p>
-                    <input
-                      type="datetime-local"
-                      value={shutdownTimeInput}
-                      onChange={(e) => setShutdownTimeInput(e.target.value)}
-                      className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-white focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!shutdownTimeInput) return;
-                        handleScheduleShutdown(new Date(shutdownTimeInput).toISOString());
-                      }}
-                      disabled={!shutdownTimeInput}
-                      className="w-full py-1.5 bg-slate-700 hover:bg-slate-800 disabled:bg-gray-300 text-white rounded text-xs font-bold"
-                    >
-                      예약하기
-                    </button>
                   </div>
                 </>
               )}

@@ -1658,7 +1658,7 @@ export default function App() {
         handleQuitAndInstall={handleQuitAndInstall}
         isAutoLaunchOn={isAutoLaunchOn}
         handleToggleAutoLaunch={handleToggleAutoLaunch}
-        scheduledShutdownAt={scheduledShutdownAt} handleScheduleShutdown={handleScheduleShutdown} handleCancelShutdown={handleCancelShutdown}
+        scheduledShutdownAt={scheduledShutdownAt}
       />
 
       <div className="flex-1 flex flex-row min-w-0 min-h-0 w-full relative overflow-hidden gap-1.5">
@@ -1723,6 +1723,7 @@ export default function App() {
               customTimetables={customTimetables} onUpdateGlobalTimetables={handleUpdateGlobalTimetables}
               onDeleteGlobalTimetable={handleDeleteGlobalTimetable}
               myClassNum={myClassNum} myTeacherName={myTeacherName}
+              scheduledShutdownAt={scheduledShutdownAt} handleScheduleShutdown={handleScheduleShutdown} handleCancelShutdown={handleCancelShutdown}
             />
             </div>
           </div>
@@ -1738,11 +1739,11 @@ export default function App() {
           <button type="button" onClick={() => setIsGradesDashboardOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isGradesDashboardOpen ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="학생 성적 대시보드"><BarChart3 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('tools') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('gradeConv')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('gradeConv') ? 'bg-rose-50 border-rose-200 text-rose-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="등급 환산 계산기"><Calculator className="w-5 h-5" /></button>
-          <button type="button" onClick={() => toggleSidePanel('shutdown')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('shutdown') ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="예약 종료">
+          <button type="button" onClick={() => toggleSidePanel('memo')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('memo') ? 'bg-yellow-50 border-yellow-200 text-yellow-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 메모장"><StickyNote className="w-5 h-5" /></button>
+          <button type="button" onClick={() => toggleSidePanel('shutdown')} className={`mt-auto p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('shutdown') ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="예약 종료">
             <PowerOff className="w-5 h-5" />
             {scheduledShutdownAt && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>}
           </button>
-          <button type="button" onClick={() => toggleSidePanel('memo')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('memo') ? 'bg-yellow-50 border-yellow-200 text-yellow-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 메모장"><StickyNote className="w-5 h-5" /></button>
         </div>
       </div>
 

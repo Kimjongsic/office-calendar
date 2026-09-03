@@ -1,13 +1,13 @@
 // src/components/DashboardHeader.jsx
 import React from 'react';
-import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power } from 'lucide-react';
+import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff } from 'lucide-react';
 
 export default function DashboardHeader({
   syncStatus, isAlwaysOnTop, isMoveLocked, opacityValue, isOpacityDropdownOpen,
   setIsOpacityDropdownOpen, handleToggleAlwaysOnTop, handleToggleMoveLock,
   handleOpacityChange, handleMinimize, handleMaximize, handleClose, appVersion,
   updateInfo, isUpdateModalOpen, setIsUpdateModalOpen, handleStartUpdateDownload, handleQuitAndInstall,
-  isAutoLaunchOn, handleToggleAutoLaunch
+  isAutoLaunchOn, handleToggleAutoLaunch, scheduledShutdownAt
 }) {
   const hasUpdateAvailable = updateInfo.status === 'available' || updateInfo.status === 'downloading' || updateInfo.status === 'downloaded';
   // 🔑 electronAPI 직접 호출 제거: IPC 호출은 App.jsx의 handleX 함수들이 이미 담당하고 있어서
@@ -53,6 +53,18 @@ export default function DashboardHeader({
             </>
           )}
         </div>
+
+        {/* 🔑 [신규] 예약 종료가 걸려있으면 헤더에 표시 */}
+        {scheduledShutdownAt && (() => {
+          const target = new Date(scheduledShutdownAt);
+          const pad = (n) => String(n).padStart(2, '0');
+          return (
+            <div className="flex items-center gap-1.5 text-xs bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-full font-medium">
+              <PowerOff className="w-3 h-3 text-rose-600" />
+              <span className="text-rose-700 font-semibold">{pad(target.getHours())}:{pad(target.getMinutes())}에 종료 예약</span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* 우측 버튼 그룹 영역 */}
