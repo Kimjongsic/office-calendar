@@ -278,6 +278,7 @@ export default function App() {
 
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
   const [isAutoLaunchOn, setIsAutoLaunchOn] = useState(false); // 🔑 컴퓨터 시작 시 자동 실행 여부
+  const [isJbLoginEnabled, setIsJbLoginEnabled] = useState(false); // 🔑 [신규] JB메신저 자동로그인 활성화 여부
   const [scheduledShutdownAt, setScheduledShutdownAt] = useState(null); // 🔑 [신규] 예약 종료 시각 (ISO 문자열, 없으면 null)
   const [isMoveLocked, setIsMovelocked] = useState(false);
   const [opacityValue, setOpacityValue] = useState(1.0);
@@ -418,6 +419,31 @@ export default function App() {
       window.electronAPI.getAutoLaunch().then(setIsAutoLaunchOn).catch(() => {});
     }
   }, []);
+
+  // 🔑 [신규] JB메신저 자동로그인 등록 상태 초기 조회
+  useEffect(() => {
+    if (window.electronAPI?.getJbLoginEnabled) {
+      window.electronAPI.getJbLoginEnabled().then(setIsJbLoginEnabled).catch(() => {});
+    }
+  }, []);
+
+  const handleSaveJbPassword = async (password) => {
+    if (!window.electronAPI?.setJbPassword) return;
+    const result = await window.electronAPI.setJbPassword(password);
+    if (result?.success) {
+      setIsJbLoginEnabled(true);
+      showToast("JB메신저 자동로그인이 등록되었습니다.", "success");
+    } else {
+      showToast(result?.error || "등록에 실패했습니다.", "error");
+    }
+  };
+
+  const handleDisableJbLogin = async () => {
+    if (!window.electronAPI?.disableJbLogin) return;
+    await window.electronAPI.disableJbLogin();
+    setIsJbLoginEnabled(false);
+    showToast("JB메신저 자동로그인이 해제되었습니다.", "info");
+  };
 
   // 🔑 [신규] 예약 종료 — 이 컴퓨터에 저장해둔 예약 시각 불러오기 (지난 시각이면 자동 정리)
   useEffect(() => {
@@ -1659,6 +1685,9 @@ export default function App() {
         isAutoLaunchOn={isAutoLaunchOn}
         handleToggleAutoLaunch={handleToggleAutoLaunch}
         scheduledShutdownAt={scheduledShutdownAt}
+        isJbLoginEnabled={isJbLoginEnabled}
+        handleSaveJbPassword={handleSaveJbPassword}
+        handleDisableJbLogin={handleDisableJbLogin}
       />
 
       <div className="flex-1 flex flex-row min-w-0 min-h-0 w-full relative overflow-hidden gap-1.5">

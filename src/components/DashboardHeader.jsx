@@ -1,14 +1,17 @@
 // src/components/DashboardHeader.jsx
 import React from 'react';
-import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff } from 'lucide-react';
+import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff, MessageCircle } from 'lucide-react';
 
 export default function DashboardHeader({
   syncStatus, isAlwaysOnTop, isMoveLocked, opacityValue, isOpacityDropdownOpen,
   setIsOpacityDropdownOpen, handleToggleAlwaysOnTop, handleToggleMoveLock,
   handleOpacityChange, handleMinimize, handleMaximize, handleClose, appVersion,
   updateInfo, isUpdateModalOpen, setIsUpdateModalOpen, handleStartUpdateDownload, handleQuitAndInstall,
-  isAutoLaunchOn, handleToggleAutoLaunch, scheduledShutdownAt
+  isAutoLaunchOn, handleToggleAutoLaunch, scheduledShutdownAt,
+  isJbLoginEnabled, handleSaveJbPassword, handleDisableJbLogin
 }) {
+  const [isJbPopoverOpen, setIsJbPopoverOpen] = useState(false); // 🔑 [신규] JB메신저 비밀번호 입력 팝업
+  const [jbPasswordInput, setJbPasswordInput] = useState('');
   const hasUpdateAvailable = updateInfo.status === 'available' || updateInfo.status === 'downloading' || updateInfo.status === 'downloaded';
   // 🔑 electronAPI 직접 호출 제거: IPC 호출은 App.jsx의 handleX 함수들이 이미 담당하고 있어서
   // 여기서 또 호출하면 클릭 한 번에 IPC가 두 번 전송되어(최대화→즉시 복원) 버튼이
@@ -81,6 +84,59 @@ export default function DashboardHeader({
         >
           <Power className="w-4 h-4" />
         </button>
+
+        {/* 🔑 [신규] JB메신저 자동로그인 */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsJbPopoverOpen(!isJbPopoverOpen)}
+            className={`p-1.5 rounded-md transition-colors cursor-pointer ${isJbLoginEnabled ? 'bg-emerald-50 text-emerald-600 font-bold' : 'text-gray-500 hover:bg-gray-100'}`}
+            title={isJbLoginEnabled ? "JB메신저 자동로그인: 켜짐" : "JB메신저 자동로그인: 꺼짐"}
+          >
+            <MessageCircle className="w-4 h-4" />
+          </button>
+          {isJbPopoverOpen && (
+            <div className="absolute top-full right-0 mt-1 w-64 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-3 space-y-2">
+              <p className="text-xs font-bold text-gray-700">JB메신저 자동로그인</p>
+              <p className="text-[10px] text-gray-400 leading-relaxed">
+                JBEdu Messenger에서 <b>"NEIS 아이디 저장하기"</b>와 <b>"인증서 저장하기"</b>가 먼저 체크되어 있어야 합니다.
+                아래 비밀번호는 이 컴퓨터에만 저장됩니다.
+              </p>
+              {isJbLoginEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => { handleDisableJbLogin(); setIsJbPopoverOpen(false); }}
+                  className="w-full py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded text-xs font-bold"
+                >
+                  자동로그인 끄기
+                </button>
+              ) : (
+                <>
+                  <input
+                    type="password"
+                    placeholder="인증서 비밀번호"
+                    value={jbPasswordInput}
+                    onChange={(e) => setJbPasswordInput(e.target.value)}
+                    className="w-full p-2 border border-[#E9E9E6] rounded text-xs bg-[#F7F7F5] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!jbPasswordInput) return;
+                      handleSaveJbPassword(jbPasswordInput);
+                      setJbPasswordInput('');
+                      setIsJbPopoverOpen(false);
+                    }}
+                    disabled={!jbPasswordInput}
+                    className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white rounded text-xs font-bold"
+                  >
+                    저장하고 켜기
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* 항상 위에 표시 버튼 */}
         <button 

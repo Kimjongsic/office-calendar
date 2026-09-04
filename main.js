@@ -1,3 +1,4 @@
+const fs = require('fs');
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -88,6 +89,61 @@ ipcMain.on('set-opacity', (event, value) => {
 
 ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// 🔑 [신규] JB메신저 자동로그인 — 비밀번호는 절대 저장소/설치파일에 포함되지 않고, 이 컴퓨터에서만 개인 스크립트에 채워짐
+const JB_REG_KEY_NAME = 'JBMessengerAutoLogin';
+
+function getJbGeneratedScriptPath() {
+  return path.join(app.getPath('userData'), 'jbmessenger-login.ps1');
+}
+
+function getJbTemplateScriptPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'jbmessenger-login-template.ps1')
+    : path.join(__dirname, 'resources', 'jbmessenger-login-template.ps1');
+}
+
+ipcMain.handle('get-jb-login-enabled', () => {
+  return new Promise((resolve) => {
+    exec(`reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v ${JB_REG_KEY_NAME}`, (err) => {
+      resolve(!err); // 🔑 조회 성공(에러 없음) = 이미 등록되어 있는 상태
+    });
+  });
+});
+
+ipcMain.handle('set-jb-password', async (event, password) => {
+  try {
+    const templateContent = fs.readFileSync(getJbTemplateScriptPath(), 'utf-8');
+    const scriptContent = templateContent.replace('__JB_PASSWORD__', password);
+    const generatedPath = getJbGeneratedScriptPath();
+    fs.writeFileSync(generatedPath, scriptContent, 'utf-8'); // 🔑 실제 비밀번호가 담긴 파일은 이 컴퓨터의 개인 폴더에만 생성됨
+
+    return new Promise((resolve) => {
+      const cmd = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v ${JB_REG_KEY_NAME} /t REG_SZ /d "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \\"${generatedPath}\\"" /f`;
+      exec(cmd, (err) => {
+        if (err) { resolve({ success: false, error: err.message }); return; }
+        resolve({ success: true });
+      });
+    });
+  } catch (err) {
+    console.error('JB메신저 자동로그인 등록 실패:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('disable-jb-login', () => {
+  return new Promise((resolve) => {
+    exec(`reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v ${JB_REG_KEY_NAME} /f`, () => {
+      try {
+        const generatedPath = getJbGeneratedScriptPath();
+        if (fs.existsSync(generatedPath)) fs.unlinkSync(generatedPath); // 🔑 저장된 비밀번호 파일도 함께 삭제
+      } catch (e) {
+        // 무시
+      }
+      resolve({ success: true });
+    });
+  });
+});
 
 // 🔑 [신규] 예약 종료 — Windows 내장 shutdown 명령 사용 (앱이 꺼져 있어도 OS 차원에서 실행됨)
 const { exec } = require('child_process');

@@ -77,6 +77,9 @@
       "preload.js",
       "package.json",
       ".env"
+    ],
+    "extraResources": [
+      { "from": "resources/jbmessenger-login-template.ps1", "to": "jbmessenger-login-template.ps1" }
     ]
   }
 }
