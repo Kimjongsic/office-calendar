@@ -90,8 +90,9 @@ ipcMain.on('set-opacity', (event, value) => {
 ipcMain.on('open-external', (event, url) => { shell.openExternal(url); });
 ipcMain.handle('get-app-version', () => app.getVersion());
 
-// 🔑 [신규] JB메신저 자동로그인 — 비밀번호는 절대 저장소/설치파일에 포함되지 않고, 이 컴퓨터에서만 개인 스크립트에 채워짐
-const JB_REG_KEY_NAME = 'JBMessengerAutoLogin';
+// 🔑 [수정] JB메신저 자동로그인 — 레지스트리 Run 키 대신 작업 스케줄러(로그온 후 지연 실행) 사용
+// (Run 키는 너무 이른 시점에 + "포커스 훔치기 방지" 정책 때문에 AppActivate/SendKeys가 부팅 시 실패하는 경우가 많음)
+const JB_TASK_NAME = 'JBMessengerAutoLogin';
 
 function getJbGeneratedScriptPath() {
   return path.join(app.getPath('userData'), 'jbmessenger-login.ps1');
@@ -105,8 +106,8 @@ function getJbTemplateScriptPath() {
 
 ipcMain.handle('get-jb-login-enabled', () => {
   return new Promise((resolve) => {
-    exec(`reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v ${JB_REG_KEY_NAME}`, (err) => {
-      resolve(!err); // 🔑 조회 성공(에러 없음) = 이미 등록되어 있는 상태
+    exec(`schtasks /query /tn "${JB_TASK_NAME}"`, (err) => {
+      resolve(!err);
     });
   });
 });
@@ -119,7 +120,8 @@ ipcMain.handle('set-jb-password', async (event, password) => {
     fs.writeFileSync(generatedPath, scriptContent, 'utf-8'); // 🔑 실제 비밀번호가 담긴 파일은 이 컴퓨터의 개인 폴더에만 생성됨
 
     return new Promise((resolve) => {
-      const cmd = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v ${JB_REG_KEY_NAME} /t REG_SZ /d "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \\"${generatedPath}\\"" /f`;
+      // 🔑 로그온 후 30초 지연 실행 — 바탕화면이 완전히 뜬 뒤에 실행되도록 해서 AppActivate 실패를 줄임
+      const cmd = `schtasks /create /tn "${JB_TASK_NAME}" /tr "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \\"${generatedPath}\\"" /sc onlogon /delay 0000:30 /f`;
       exec(cmd, (err) => {
         if (err) { resolve({ success: false, error: err.message }); return; }
         resolve({ success: true });
@@ -133,7 +135,7 @@ ipcMain.handle('set-jb-password', async (event, password) => {
 
 ipcMain.handle('disable-jb-login', () => {
   return new Promise((resolve) => {
-    exec(`reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v ${JB_REG_KEY_NAME} /f`, () => {
+    exec(`schtasks /delete /tn "${JB_TASK_NAME}" /f`, () => {
       try {
         const generatedPath = getJbGeneratedScriptPath();
         if (fs.existsSync(generatedPath)) fs.unlinkSync(generatedPath); // 🔑 저장된 비밀번호 파일도 함께 삭제

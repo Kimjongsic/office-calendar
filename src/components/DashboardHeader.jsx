@@ -1,5 +1,5 @@
 // src/components/DashboardHeader.jsx
-import React from 'react';
+import React, { useState } from 'react';
 import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff, MessageCircle } from 'lucide-react';
 
 export default function DashboardHeader({
