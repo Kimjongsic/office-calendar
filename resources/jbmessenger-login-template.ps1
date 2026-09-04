@@ -2,8 +2,19 @@
 chcp 65001 | Out-Null
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName Microsoft.VisualBasic
-# 0. 부팅 직후에는 바탕화면(explorer)이 아직 완전히 안 떴을 수 있으므로 넉넉히 대기
-Start-Sleep -Seconds 10
+
+# 0. 🔑 [수정] 무조건 10초 기다리는 대신, "로그인 화면(LogonUI)이 실제로 사라질 때까지" 대기
+#    → 사용자가 아직 Windows 비밀번호를 입력 중이면 LogonUI.exe 프로세스가 살아있으므로,
+#      그게 없어지는(=바탕화면에 실제로 도달한) 순간까지 최대 5분간 기다림
+$maxLoginWaitSeconds = 300
+$loginWaited = 0
+while ((Get-Process -Name "LogonUI" -ErrorAction SilentlyContinue) -and ($loginWaited -lt $maxLoginWaitSeconds)) {
+    Start-Sleep -Seconds 2
+    $loginWaited += 2
+}
+# 🔑 로그인 완료 후에도 바탕화면이 안정화될 시간을 조금 더 확보
+Start-Sleep -Seconds 5
+
 # 1. JBEdu Messenger 실행
 Start-Process "C:\Program Files (x86)\JBEdu Messenger+\Launcher.exe"
 
