@@ -115,7 +115,12 @@ ipcMain.handle('get-jb-login-enabled', () => {
 ipcMain.handle('set-jb-password', async (event, password) => {
   try {
     const templateContent = fs.readFileSync(getJbTemplateScriptPath(), 'utf-8');
-    const scriptContent = templateContent.replace('__JB_PASSWORD__', password);
+    // 🔑 [수정] 비밀번호에 큰따옴표/백틱/달러 기호 등이 있으면 PowerShell 문자열이 깨지므로 안전하게 이스케이프
+    const safePassword = password
+      .replace(/`/g, '``')   // 백틱 이스케이프 (먼저 처리해야 함)
+      .replace(/"/g, '`"')   // 큰따옴표 이스케이프
+      .replace(/\$/g, '`$'); // 달러 기호(변수 확장 방지) 이스케이프
+    const scriptContent = templateContent.replace('__JB_PASSWORD__', safePassword);
     const generatedPath = getJbGeneratedScriptPath();
     fs.writeFileSync(generatedPath, scriptContent, 'utf-8'); // 🔑 실제 비밀번호가 담긴 파일은 이 컴퓨터의 개인 폴더에만 생성됨
 
