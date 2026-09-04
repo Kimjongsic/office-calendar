@@ -66,8 +66,11 @@ Start-Sleep -Milliseconds 800
 # 5. 아이디 칸 → 인증서 비밀번호 칸까지 Tab 2번
 [System.Windows.Forms.SendKeys]::SendWait("{TAB}{TAB}")
 Start-Sleep -Milliseconds 200
-# 6. 인증서 비밀번호 입력
-[System.Windows.Forms.SendKeys]::SendWait("__JB_PASSWORD__")
+# 6. 인증서 비밀번호 입력 — Base64로 안전하게 전달받아 디코딩 (특수문자로 인한 스크립트 깨짐 방지)
+$jbPasswordBase64 = "__JB_PASSWORD_BASE64__"
+$jbPasswordBytes = [System.Convert]::FromBase64String($jbPasswordBase64)
+$jbPassword = [System.Text.Encoding]::UTF8.GetString($jbPasswordBytes)
+[System.Windows.Forms.SendKeys]::SendWait($jbPassword)
 Start-Sleep -Milliseconds 300
 # 7. 로그인
 [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")

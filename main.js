@@ -115,14 +115,14 @@ ipcMain.handle('get-jb-login-enabled', () => {
 ipcMain.handle('set-jb-password', async (event, password) => {
   try {
     const templateContent = fs.readFileSync(getJbTemplateScriptPath(), 'utf-8');
-    // 🔑 [수정] 비밀번호에 큰따옴표/백틱/달러 기호 등이 있으면 PowerShell 문자열이 깨지므로 안전하게 이스케이프
-    const safePassword = password
-      .replace(/`/g, '``')   // 백틱 이스케이프 (먼저 처리해야 함)
-      .replace(/"/g, '`"')   // 큰따옴표 이스케이프
-      .replace(/\$/g, '`$'); // 달러 기호(변수 확장 방지) 이스케이프
-    const scriptContent = templateContent.replace('__JB_PASSWORD__', safePassword);
+    // 🔑 [수정] 문자열 이스케이프 대신, 비밀번호를 Base64로 인코딩해서 스크립트에 넣음
+    // → 어떤 특수문자(따옴표, 백틱, 달러 기호 등)가 와도 절대 깨지지 않음 (Base64는 영문자/숫자/+/=만 사용)
+    const base64Password = Buffer.from(password, 'utf-8').toString('base64');
+    const scriptContent = templateContent.replace('__JB_PASSWORD_BASE64__', base64Password);
     const generatedPath = getJbGeneratedScriptPath();
-    fs.writeFileSync(generatedPath, scriptContent, 'utf-8'); // 🔑 실제 비밀번호가 담긴 파일은 이 컴퓨터의 개인 폴더에만 생성됨
+    // 🔑 [수정] UTF-8 BOM을 붙여서 저장 — Windows PowerShell(5.1)이 한글/이모지가 섞인 파일을
+    // 구식 인코딩(CP949)으로 잘못 해석해 따옴표가 깨지는 문제 방지
+    fs.writeFileSync(generatedPath, '\uFEFF' + scriptContent, 'utf-8');
 
     return new Promise((resolve) => {
       const cmd = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v ${JB_REG_KEY_NAME} /t REG_SZ /d "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \\"${generatedPath}\\"" /f`;
