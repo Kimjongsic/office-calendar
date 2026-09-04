@@ -6,8 +6,30 @@ Add-Type -AssemblyName Microsoft.VisualBasic
 Start-Sleep -Seconds 10
 # 1. JBEdu Messenger 실행
 Start-Process "C:\Program Files (x86)\JBEdu Messenger+\Launcher.exe"
-# 2. 창 뜰 때까지 대기 (부팅 직후엔 평소보다 느릴 수 있어 넉넉히)
-Start-Sleep -Seconds 8
+
+# 2. 🔑 [수정] 무조건 몇 초 기다리는 대신, 창(프로세스)이 실제로 뜰 때까지 최대 60초간 0.5초 간격으로 확인
+$maxWaitSeconds = 60
+$elapsed = 0
+$windowFound = $false
+while ($elapsed -lt $maxWaitSeconds) {
+    $proc = Get-Process | Where-Object { $_.MainWindowTitle -like "*JBEdu*" -or $_.MainWindowTitle -like "*JB메신저*" }
+    if ($proc -and $proc.MainWindowHandle -ne 0) {
+        $windowFound = $true
+        break
+    }
+    Start-Sleep -Milliseconds 500
+    $elapsed += 0.5
+}
+
+if (-not $windowFound) {
+    # 🔑 60초가 지나도 창을 못 찾으면, 문제 파악을 위해 로그만 남기고 스크립트 종료 (엉뚱한 곳에 입력하는 사고 방지)
+    Add-Content -Path "$env:APPDATA\office-calendar\jbmessenger-login-log.txt" -Value "$(Get-Date): 창을 찾지 못해 종료됨"
+    exit
+}
+
+# 🔑 창이 완전히 그려질 시간을 위해 약간의 추가 대기
+Start-Sleep -Milliseconds 1500
+
 # 3. 창 활성화 — 실패할 경우를 대비해 여러 번 재시도
 for ($i = 0; $i -lt 5; $i++) {
     try {
