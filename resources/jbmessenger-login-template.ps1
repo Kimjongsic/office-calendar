@@ -43,9 +43,19 @@ while ($elapsed -lt $maxWaitSeconds) {
 
 if (-not $jbWindow) {
     Add-Content -Path $logPath -Value "$(Get-Date): 창을 찾지 못해 종료됨"
+    # 🔑 [임시 디버깅용] 현재 떠 있는 모든 최상위 창 이름을 로그로 남김
+    $windowCondition2 = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Window
+    )
+    $allWindows = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $windowCondition2)
+    foreach ($w in $allWindows) {
+        Add-Content -Path $logPath -Value "  - 발견된 창: $($w.Current.Name)"
+    }
     exit
 }
-Add-Content -Path $logPath -Value "$(Get-Date): 창 찾음, 입력창 탐색 시작"
+Add-Content -Path $logPath -Value "$(Get-Date): 창 찾음 - 이름: $($jbWindow.Current.Name)"
+Add-Content -Path $logPath -Value "$(Get-Date): 입력창 탐색 시작"
 
 # 3. 🔑 창 안의 모든 Edit(입력창) 요소를 찾아서, 비밀번호 칸을 특정
 #    (1순위: IsPassword 속성이 true인 것 / 2순위: 화면상 가장 아래(Y좌표가 큰) Edit 요소)
@@ -67,6 +77,8 @@ if (-not $passwordEdit -and $edits.Count -gt 0) {
     # 🔑 IsPassword로 못 찾으면, 화면에서 가장 아래에 있는 입력창을 비밀번호 칸으로 간주 (안전장치)
     $passwordEdit = $edits | Sort-Object { $_.Current.BoundingRectangle.Top } -Descending | Select-Object -First 1
 }
+
+Add-Content -Path $logPath -Value "$(Get-Date): 발견된 입력창(Edit) 개수: $($edits.Count)"
 
 if (-not $passwordEdit) {
     Add-Content -Path $logPath -Value "$(Get-Date): 비밀번호 입력창을 찾지 못해 종료됨"
