@@ -1485,7 +1485,16 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
                 {result ? (
                   <>
                     <p style={{ fontSize: "11px", color: "#A9C0DE", margin: "0 0 4px", fontWeight: 700 }}>선택된 {result.count}과목 · 총 {result.creditSum}단위 기준 평균</p>
-                    <p style={{ fontSize: "32px", fontWeight: 800, color: "#FFFFFF", margin: 0 }}>{result.avg.toFixed(2)}등급</p>
+                    <div style={{ display: "flex", justifyContent: "center", alignItems: "baseline", gap: "16px" }}>
+                      <div>
+                        <span style={{ fontSize: "32px", fontWeight: 800, color: "#FFFFFF" }}>{result.avg.toFixed(2)}</span>
+                        <span style={{ fontSize: "12px", color: "#A9C0DE", marginLeft: "4px" }}>5등급제</span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "32px", fontWeight: 800, color: "#C4B5FD" }}>{convertGrade5to9(result.avg).g9.toFixed(2)}</span>
+                        <span style={{ fontSize: "12px", color: "#A9C0DE", marginLeft: "4px" }}>9등급제</span>
+                      </div>
+                    </div>
                   </>
                 ) : (
                   <p style={{ fontSize: "13px", color: "#A9C0DE", margin: 0 }}>과목을 선택하고 예상 등급을 입력해주세요.</p>
