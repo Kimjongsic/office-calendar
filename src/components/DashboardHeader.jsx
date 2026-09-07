@@ -96,10 +96,16 @@ export default function DashboardHeader({
             <MessageCircle className="w-4 h-4" />
           </button>
           {isJbPopoverOpen && (
-            <div className="absolute top-full right-0 mt-1 w-64 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-3 space-y-2">
-              <p className="text-xs font-bold text-gray-700">JB메신저 자동로그인</p>
-              <p className="text-[10px] text-gray-400 leading-relaxed">
-                JBEdu Messenger에서 <b>"NEIS 아이디 저장하기"</b>와 <b>"인증서 저장하기"</b>가 먼저 체크되어 있어야 합니다.
+            <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-3 space-y-2">
+              <p className="text-sm font-bold text-gray-800">JB메신저 자동로그인</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-2.5 space-y-2">
+                <p className="text-xs font-bold text-amber-800">먼저 확인해주세요</p>
+                <img src="/jbedu-login-guide.png" alt="JBEdu Messenger 저장 체크박스 안내" className="w-full rounded-md border border-amber-200" />
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  JBEdu Messenger에서 <span className="font-extrabold underline">"NEIS 아이디 저장하기"</span>와 <span className="font-extrabold underline">"인증서 저장하기"</span>가 체크되어 있어야 자동 로그인이 가능합니다.
+                </p>
+              </div>
+              <p className="text-[11px] text-gray-500">
                 아래 비밀번호는 이 컴퓨터에만 저장됩니다.
               </p>
               {isJbLoginEnabled ? (

@@ -65,7 +65,11 @@ function createWindow() {
       preload: preloadPath,
       sandbox: true,
       webviewTag: false,
-      allowRunningInsecureContent: false
+      allowRunningInsecureContent: false,
+      // 🔑 [신규] 고정된 파티션 이름을 명시 — 앱 업데이트/재시작 후에도 항상 같은 저장공간을 정확히 참조하도록 함
+      // (partition을 지정하지 않으면 기본 세션을 쓰는데, 버전이 바뀌며 캐시 삭제 등의 영향으로
+      //  localStorage가 사라지는 문제가 보고된 사례들이 있어 명시적으로 고정)
+      partition: 'persist:main'
     },
   });
 

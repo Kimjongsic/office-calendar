@@ -455,11 +455,33 @@ function AreaSumCard({ title, total, items, accent }) {
 }
 
 
-function UploadButton({ fileInputRef, handleFile }) {
+function UploadButton({ fileInputRef, handleFile, onFileDropped }) {
+  const [isDragOver, setIsDragOver] = useState(false);
   return (
-    <div>
+    <div
+      onClick={() => fileInputRef.current && fileInputRef.current.click()}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(false);
+        const file = e.dataTransfer.files && e.dataTransfer.files[0];
+        if (file) onFileDropped(file);
+      }}
+      style={{
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px",
+        padding: "28px 24px", borderRadius: "14px", cursor: "pointer",
+        border: `2px dashed ${isDragOver ? "#1F3A5F" : "#D1D5DB"}`,
+        background: isDragOver ? "#1F3A5F0D" : "#FAFBFC",
+        transition: "all 0.15s",
+      }}
+    >
+      <p style={{ fontSize: "12px", color: "#9AA0A8", margin: 0 }}>
+        {isDragOver ? "여기에 놓으면 업로드됩니다" : "엑셀 파일을 이 영역에 끌어다 놓거나,"}
+      </p>
       <button
-        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+        onClick={(e) => { e.stopPropagation(); fileInputRef.current && fileInputRef.current.click(); }}
         style={{ ...btnStyle, background: "#1F3A5F", color: "#fff", border: "1px solid #1F3A5F" }}
       >
         엑셀 업로드
@@ -498,8 +520,8 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
     }
   }, []);
 
-  const handleElectiveUpload = (e) => {
-    const file = e.target.files && e.target.files[0];
+  // 🔑 [수정] 파일 객체를 직접 받도록 분리 — <input onChange>와 드래그앤드롭 둘 다 재사용
+  const processElectiveFile = (file) => {
     if (!file) return;
     setElectiveUploadError("");
     const reader = new FileReader();
@@ -514,6 +536,11 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  const handleElectiveUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    processElectiveFile(file);
     e.target.value = "";
   };
 
@@ -574,6 +601,8 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
   const [plannedGrades, setPlannedGrades] = useState({}); // 🔑 예정과목별 입력한 예상 등급 { courseName: '3' }
   const [electiveRoster, setElectiveRoster] = useState({}); // 🔑 [신규] 2학년 2학기 선택과목 명단 { 반: { 번호: [과목명,...] } }
   const [electiveUploadError, setElectiveUploadError] = useState("");
+  const [isElectiveUploadModalOpen, setIsElectiveUploadModalOpen] = useState(false); // 🔑 [신규] 선택과목 명단 업로드 모달
+  const [isElectiveDragOver, setIsElectiveDragOver] = useState(false);
 
   // 🔑 [수정] 훅은 early return보다 반드시 위에 있어야 하므로, uploaded/classNum/studentNum만으로 안전하게 계산
   const ALL_TERMS = useMemo(() => {
@@ -701,8 +730,8 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
     }
   };
 
-  const handleFile = (e) => {
-    const file = e.target.files && e.target.files[0];
+  // 🔑 [수정] 파일 객체를 직접 받도록 분리 — <input onChange>와 드래그앤드롭 둘 다 재사용
+  const processGradesFile = (file) => {
     if (!file) return;
     setUploadError("");
     const reader = new FileReader();
@@ -729,6 +758,11 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  const handleFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    processGradesFile(file);
   };
 
   const CloseButton = () => (
@@ -774,7 +808,7 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
             <p style={{ fontSize: "13px", color: "#6B7280", margin: "0 0 20px" }}>
               아직 업로드된 데이터가 없어요. 나이스에서 다운로드한 엑셀 파일을 업로드해주세요.
             </p>
-            <div style={{ display: "flex", justifyContent: "center" }}><UploadButton fileInputRef={fileInputRef} handleFile={handleFile} /></div>
+            <div style={{ display: "flex", justifyContent: "center" }}><UploadButton fileInputRef={fileInputRef} handleFile={handleFile} onFileDropped={processGradesFile} /></div>
             {uploadError && (
               <div style={{ background: "#FCEBEB", color: "#791F1F", borderRadius: "10px", padding: "10px 14px", fontSize: "13px", marginTop: "16px" }}>
                 {uploadError}
@@ -1080,15 +1114,18 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
                 <Calculator size={16} />
               </button>
 
-              <label title={Object.keys(electiveRoster).length > 0 ? "선택과목 명단 업로드됨 (다시 클릭해 교체)" : "선택과목 명단 업로드 (아직 없음)"} style={{ ...btnStyle, padding: "9px", cursor: "pointer", position: "relative" }}>
+              <button
+                onClick={() => setIsElectiveUploadModalOpen(true)}
+                title={Object.keys(electiveRoster).length > 0 ? "선택과목 명단 업로드됨 (다시 클릭해 교체)" : "선택과목 명단 업로드"}
+                style={{ ...btnStyle, padding: "9px", cursor: "pointer", position: "relative" }}
+              >
                 <Upload size={16} />
                 <span style={{
                   position: "absolute", top: "3px", right: "3px", width: "7px", height: "7px", borderRadius: "50%",
                   background: Object.keys(electiveRoster).length > 0 ? "#22C55E" : "#D1D5DB",
                   border: "1.5px solid #fff",
                 }} />
-                <input type="file" accept=".xlsx,.xls" onChange={handleElectiveUpload} style={{ display: "none" }} />
-              </label>
+              </button>
 
               <button onClick={handlePrintPdf} disabled={isSavingPdf} title="PDF로 저장" style={{ ...btnStyle, padding: "9px", background: "#2a78d6", color: "#fff", border: "1px solid #2a78d6" }}>
                 <Download size={16} />
@@ -1343,7 +1380,65 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
         </div>
       </div>
 
-      {/* 🔑 [신규] 성적 설계기 모달 */}
+      {/* 🔑 [신규] 선택과목 명단 업로드 모달 */}
+      {isElectiveUploadModalOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsElectiveUploadModalOpen(false)}>
+          <div className="relative bg-[#F5F6F8] rounded-xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 800, color: "#1F3A5F", margin: 0 }}>선택과목 명단 업로드</h2>
+              <button onClick={() => setIsElectiveUploadModalOpen(false)} style={{ ...btnStyle, padding: "6px 10px" }}>닫기</button>
+            </div>
+            <p style={{ fontSize: "12px", color: "#6B7280", margin: "0 0 16px" }}>
+              2학년 2학기 수강신청 내역 엑셀 파일을 업로드하면, 학생별 선택과목이 자동으로 반영됩니다.
+            </p>
+
+            <div
+              onClick={() => document.getElementById('elective-upload-input').click()}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsElectiveDragOver(true); }}
+              onDragLeave={() => setIsElectiveDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsElectiveDragOver(false);
+                const file = e.dataTransfer.files && e.dataTransfer.files[0];
+                if (file) { processElectiveFile(file); setIsElectiveUploadModalOpen(false); }
+              }}
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px",
+                padding: "36px 24px", borderRadius: "14px", cursor: "pointer",
+                border: `2px dashed ${isElectiveDragOver ? "#1F3A5F" : "#D1D5DB"}`,
+                background: isElectiveDragOver ? "#1F3A5F0D" : "#FAFBFC",
+                transition: "all 0.15s",
+              }}
+            >
+              <Upload size={22} style={{ color: "#9AA0A8" }} />
+              <p style={{ fontSize: "12px", color: "#9AA0A8", margin: 0, textAlign: "center" }}>
+                {isElectiveDragOver ? "여기에 놓으면 업로드됩니다" : "엑셀 파일을 이 영역에 끌어다 놓거나,"}
+              </p>
+              <button
+                onClick={(e) => { e.stopPropagation(); document.getElementById('elective-upload-input').click(); }}
+                style={{ ...btnStyle, background: "#1F3A5F", color: "#fff", border: "1px solid #1F3A5F" }}
+              >
+                파일 선택
+              </button>
+              <input
+                id="elective-upload-input"
+                type="file" accept=".xlsx,.xls"
+                onChange={(e) => { handleElectiveUpload(e); setIsElectiveUploadModalOpen(false); }}
+                style={{ display: "none" }}
+              />
+            </div>
+
+            {electiveUploadError && (
+              <div style={{ background: "#FCEBEB", color: "#791F1F", borderRadius: "10px", padding: "10px 14px", fontSize: "12px", marginTop: "14px" }}>
+                {electiveUploadError}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 🔑 성적 설계기 모달 */}
       {isDesignerOpen && (() => {
         const result = designerResult;
         return (
