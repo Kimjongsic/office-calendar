@@ -1,6 +1,6 @@
 // src/components/SideAccordionPanel.jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, ChevronUp, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Settings2, Trash2, Link2, Calculator, StickyNote, Menu, Check, PowerOff } from 'lucide-react';
+import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, ChevronUp, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Settings2, Trash2, Link2, Calculator, StickyNote, Menu, Check, PowerOff, Camera } from 'lucide-react';
 
 // 🔑 2026년 유치원·초등학교·중학교·고등학교 교원 봉급표 (월지급액, 단위: 원)
 // 출처: 인사혁신처 고시. 매년 갱신되니 새 봉급표 발표 시 이 배열만 교체하면 됩니다.
@@ -48,8 +48,35 @@ function convertGrade5to9(g5) {
   return null;
 }
 
-// 🔑 [신규] 역변환: 9등급제 → 5등급제 (같은 표를 g9 기준으로 선형보간)
-// 🔑 [신규] 공유 메모장 — 포스트잇 색상 팔레트
+// 🔑 [신규] 선택된 날짜를 'YYYY-MM-DD' 키로 변환
+// 🔑 [신규] 선택된 날짜를 'YYYY-MM-DD' 키로 변환
+function toMealDateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// 🔑 그날의 식판 이미지를 public/meal-trays/에서 불러와 표시.
+// 파일이 없으면(아직 준비 안 된 날짜) 아무것도 표시하지 않고 조용히 사라짐 → 아래 텍스트 목록만 보임
+function DailyMealTrayImage({ date, mealType }) {
+  const [hasImage, setHasImage] = useState(true);
+  const dateKey = toMealDateKey(date);
+  const src = `/meal-trays/${dateKey}-${mealType}.png`;
+
+  if (!hasImage) return null;
+
+  return (
+    <img
+      src={src}
+      alt={`${dateKey} ${mealType === 'lunch' ? '중식' : '석식'} 식판`}
+      className="w-full rounded-xl border border-gray-200 shadow-sm object-cover"
+      onError={() => setHasImage(false)}
+    />
+  );
+}
+
+// 🔑 공유 메모장 — 포스트잇 색상 팔레트
 const POST_IT_COLORS = {
   yellow: { bg: 'bg-yellow-100', border: 'border-yellow-300' },
   pink: { bg: 'bg-pink-100', border: 'border-pink-300' },
@@ -85,7 +112,8 @@ export default React.memo(function SideAccordionPanel({
   editingLinkId, handleSaveUsefulLink, handleDeleteUsefulLink, handleStartEditLink, handleStartNewLink,
   sharedMemos, editingMemoId,
   handleDeleteMemo, handleStartEditMemo, handleStartNewMemo, handleFinishEditMemo, handleReorderMemos, handleToggleMemoShare,
-  scheduledShutdownAt, handleScheduleShutdown, handleCancelShutdown
+  scheduledShutdownAt, handleScheduleShutdown, handleCancelShutdown,
+  mealPhotos, handleUploadMealPhoto, handleDeleteMealPhoto
 }) {
 
   // 시간표 제어 전용 상태 그룹
@@ -170,6 +198,7 @@ export default React.memo(function SideAccordionPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSidePanel]);
   const [shutdownNowTick, setShutdownNowTick] = useState(Date.now()); // 🔑 남은 시간 표시용 1분마다 갱신 (다른 곳의 nowTick과 이름 충돌 방지)
+  const [zoomedMealPhoto, setZoomedMealPhoto] = useState(null); // 🔑 [신규] 클릭 시 확대해서 볼 사진 (image data URL)
   const [shutdownPresets, setShutdownPresets] = useState([]); // 🔑 [신규] 자주 쓰는 예약 프리셋 { id, label, hour, minute }
   const [isAddingPreset, setIsAddingPreset] = useState(false);
   const [isSchedulingShutdown, setIsSchedulingShutdown] = useState(false); // 🔑 [신규] "예약하기" 처리 중 표시
@@ -1064,6 +1093,7 @@ export default React.memo(function SideAccordionPanel({
                 {activeDayMeal.lunch ? (
                   <div className="space-y-1">
                     <div className="text-[11px] font-black text-emerald-800 bg-emerald-50 px-2 py-0.5 inline-block rounded border border-emerald-100">☀️ 중식 구성</div>
+                    <DailyMealTrayImage date={selectedDate} mealType="lunch" />
                     <div className="bg-[#F7F7F5] p-2.5 rounded-lg border border-gray-100 text-xs text-gray-700 font-semibold whitespace-pre-wrap leading-relaxed">{activeDayMeal.lunch.diet}</div>
                     <p className="text-[9px] text-right text-gray-400 font-bold">열량: {activeDayMeal.lunch.calories}</p>
                   </div>
@@ -1078,6 +1108,39 @@ export default React.memo(function SideAccordionPanel({
                 ) : ( <p className="text-[10px] text-gray-400 italic bg-gray-50/60 p-2 rounded text-center border border-dashed self-start">석식 미운영 일자</p> )}
               </div>
             ) : ( <p className="text-xs text-gray-400 italic text-center py-5 bg-[#F7F7F5]/40 rounded-lg border border-dashed border-gray-200">지정된 급식 정보가 존재하지 않습니다.</p> )}
+
+            {/* 🔑 [수정] 중식 사진 — 2열 그리드와 별개로, 전체 폭(1열)으로 크게 표시 */}
+            {activeDayMeal && activeDayMeal.lunch && (() => {
+              const dateKey = toMealDateKey(selectedDate);
+              const photo = mealPhotos[dateKey];
+              return photo ? (
+                <div className="relative group">
+                  <img
+                    src={photo.image}
+                    alt="중식 사진"
+                    onClick={() => setZoomedMealPhoto(photo.image)}
+                    className="w-full rounded-lg border border-gray-200 shadow-xs object-cover cursor-zoom-in"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteMealPhoto(dateKey)}
+                    className="absolute top-1.5 right-1.5 p-1 bg-white/90 hover:bg-white text-gray-500 hover:text-rose-600 rounded-full shadow-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="사진 삭제"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-1.5 py-3 bg-gray-50/50 border border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+                  <Camera className="w-3.5 h-3.5 text-gray-400" />
+                  <span className="text-[11px] font-bold text-gray-500">중식 사진 추가</span>
+                  <input
+                    type="file" accept="image/*" className="hidden"
+                    onChange={(e) => { if (e.target.files[0]) handleUploadMealPhoto(dateKey, e.target.files[0]); e.target.value = ''; }}
+                  />
+                </label>
+              );
+            })()}
 
             {/* 🔑 선택된 날짜의 요일 4교시 기준으로 교사를 두 그룹으로 분류 (날짜 선택에 따라 함께 갱신) */}
             {(() => {
@@ -1846,6 +1909,27 @@ export default React.memo(function SideAccordionPanel({
           </aside>
         )}
 
+    {/* 🔑 [신규] 급식 사진 확대보기 라이트박스 */}
+      {zoomedMealPhoto && (
+        <div
+          className="fixed inset-0 z-100 bg-black/70 backdrop-blur-xs flex items-center justify-center p-6 cursor-zoom-out"
+          onClick={() => setZoomedMealPhoto(null)}
+        >
+          <img
+            src={zoomedMealPhoto}
+            alt="중식 사진 확대"
+            className="max-w-full max-h-full rounded-lg shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={() => setZoomedMealPhoto(null)}
+            className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 });

@@ -35,8 +35,41 @@ while ((Get-Process -Name "LogonUI" -ErrorAction SilentlyContinue) -and ($loginW
 Start-Sleep -Seconds 5
 Add-Content -Path $logPath -Value "$(Get-Date): login wait done, launching messenger"
 
-# 1. Launch JBEdu Messenger
-Start-Process "C:\Program Files (x86)\JBEdu Messenger+\Launcher.exe"
+# 1. Installation path can differ per computer, so try multiple detection methods
+$launcherPath = $null
+
+# Method A: check common candidate paths first
+$candidatePaths = @(
+    "C:\Program Files (x86)\JBEdu Messenger+\Launcher.exe",
+    "C:\Program Files\JBEdu Messenger+\Launcher.exe",
+    "${env:ProgramFiles(x86)}\JBEdu Messenger+\Launcher.exe",
+    "${env:ProgramFiles}\JBEdu Messenger+\Launcher.exe"
+)
+foreach ($p in $candidatePaths) {
+    if (Test-Path $p) {
+        $launcherPath = $p
+        break
+    }
+}
+
+# Method B: if not found above, search the whole C drive for Launcher.exe (may take a bit longer)
+if (-not $launcherPath) {
+    Add-Content -Path $logPath -Value "$(Get-Date): launcher not found in candidate paths, searching disk"
+    $found = Get-ChildItem -Path "C:\" -Filter "Launcher.exe" -Recurse -ErrorAction SilentlyContinue -Force |
+        Where-Object { $_.DirectoryName -like "*JBEdu*" } |
+        Select-Object -First 1
+    if ($found) {
+        $launcherPath = $found.FullName
+    }
+}
+
+if ($launcherPath) {
+    Add-Content -Path $logPath -Value "$(Get-Date): launcher found at $launcherPath"
+    Start-Process $launcherPath
+} else {
+    # Method C: last resort - give up launching and just proceed to check if the process is already running
+    Add-Content -Path $logPath -Value "$(Get-Date): launcher.exe not found anywhere, will only check if AtMessengerMobileEdition is already running"
+}
 
 # 2. Wait for the actual process (AtMessengerMobileEdition) to appear
 $root = [System.Windows.Automation.AutomationElement]::RootElement

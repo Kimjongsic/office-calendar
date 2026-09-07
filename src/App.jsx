@@ -318,6 +318,7 @@ export default function App() {
 
   // 🔑 [신규] 공유 메모장 — 전교 공유, 실시간 동기화
   const [sharedMemos, setSharedMemos] = useState([]);
+  const [mealPhotos, setMealPhotos] = useState({}); // 🔑 [신규] 날짜별 중식 사진 { 'YYYY-MM-DD': { image: 'data:...' } }
   const [personalMemos, setPersonalMemos] = useState([]); // 🔑 개인 메모 (localStorage)
   const [editingMemoId, setEditingMemoId] = useState(null); // 🔑 지금 인라인 편집 중인 메모 id
   const [memoOrder, setMemoOrder] = useState([]); // 🔑 [신규] 메모 표시 순서 — 이 컴퓨터에만 저장 (id 배열)
@@ -622,14 +623,24 @@ export default function App() {
     });
   }, [syncStatus]);
 
-  // 🔑 [신규] 공유 메모장 — 전교 공유, 실시간 동기화
+  // 🔑 공유 메모장 — 전교 공유, 실시간 동기화
   useEffect(() => {
     if (syncStatus !== 'connected' || !db) return;
     const memosRef = collection(db, 'artifacts', appId, 'public', 'data', 'sharedMemos');
     return onSnapshot(memosRef, (snapshot) => {
       const items = []; snapshot.forEach((doc) => { items.push({ id: doc.id, ...doc.data() }); });
-      // 🔑 표시 순서는 이제 각자 로컬 순서(memoOrder)로 정하므로, 여기선 최신순 정도로만 기본 정렬
       setSharedMemos(items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    });
+  }, [syncStatus]);
+
+  // 🔑 [신규] 급식(중식) 사진 — 전교 공유, 실시간 동기화 (문서 id = 날짜)
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    const photosRef = collection(db, 'artifacts', appId, 'public', 'data', 'mealPhotos');
+    return onSnapshot(photosRef, (snapshot) => {
+      const map = {};
+      snapshot.forEach((doc) => { map[doc.id] = doc.data(); });
+      setMealPhotos(map);
     });
   }, [syncStatus]);
 
@@ -1136,6 +1147,55 @@ export default function App() {
       if (syncStatus === 'connected' && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', id));
     } else {
       savePersonalMemos(personalMemos.filter((m) => m.id !== id));
+    }
+  };
+
+  // 🔑 [신규] 이미지 파일을 자동으로 압축(리사이즈)해서 base64 데이터로 변환
+  const compressImageFile = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxWidth = 800;
+          const scale = Math.min(1, maxWidth / img.width);
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.6)); // 🔑 60% 품질로 압축
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // 🔑 [신규] 급식(중식) 사진 업로드 — 날짜별로 1장, 전교 공유
+  const handleUploadMealPhoto = async (dateKey, file) => {
+    if (!file) return;
+    try {
+      const compressedDataUrl = await compressImageFile(file);
+      if (syncStatus === 'connected' && db) {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'mealPhotos', dateKey), {
+          image: compressedDataUrl,
+          uploadedAt: new Date().toISOString(),
+        });
+      }
+      showToast("급식 사진이 등록되었습니다.", "success");
+    } catch (err) {
+      console.error("급식 사진 업로드 실패:", err);
+      showToast("사진 업로드에 실패했습니다.", "error");
+    }
+  };
+
+  const handleDeleteMealPhoto = async (dateKey) => {
+    if (!window.confirm("이 사진을 삭제할까요?")) return;
+    if (syncStatus === 'connected' && db) {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'mealPhotos', dateKey));
     }
   };
 
@@ -1740,6 +1800,9 @@ export default function App() {
               handleFinishEditMemo={handleFinishEditMemo}
               handleReorderMemos={handleReorderMemos}
               handleToggleMemoShare={handleToggleMemoShare}
+              mealPhotos={mealPhotos}
+              handleUploadMealPhoto={handleUploadMealPhoto}
+              handleDeleteMealPhoto={handleDeleteMealPhoto}
               activeDayMeal={activeDayMeal} messengerInput={messengerInput} setMessengerInput={setMessengerInput}
               handleAnalyzeMessengerText={handleAnalyzeMessengerText} isAnalyzing={isAnalyzing} parsedProposals={parsedProposals}
               setParsedProposals={setParsedProposals} categories={categories} categoryOrder={categoryOrder} NOTION_PALETTES={NOTION_PALETTES}
