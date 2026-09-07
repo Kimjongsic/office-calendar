@@ -3,6 +3,29 @@ const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { autoUpdater } = require('electron-updater');
+
+// 🔑 [신규] 업데이트 확인이 응답 없이 계속 걸리는 문제 방지 — 15초 안에 결과가 없으면 강제로 "확인 실패" 처리
+let updateCheckTimeoutId = null;
+let updateCheckSettled = false; // 🔑 이미 결과(성공/실패)가 온 경우, 타임아웃이 뒤늦게 발동해도 무시하기 위한 플래그
+
+function startUpdateCheckTimeout() {
+  updateCheckSettled = false;
+  if (updateCheckTimeoutId) clearTimeout(updateCheckTimeoutId);
+  updateCheckTimeoutId = setTimeout(() => {
+    if (updateCheckSettled) return; // 🔑 이미 응답이 왔으면 아무것도 안 함
+    updateCheckSettled = true;
+    console.log('업데이트 확인 타임아웃(15초) — 네트워크 지연으로 판단하고 중단');
+    if (win) win.webContents.send('update-status', { status: 'error', message: '업데이트 확인 시간이 초과되었습니다. 네트워크 상태를 확인해주세요.' });
+  }, 15000); // 🔑 15초
+}
+
+function markUpdateCheckSettled() {
+  updateCheckSettled = true;
+  if (updateCheckTimeoutId) {
+    clearTimeout(updateCheckTimeoutId);
+    updateCheckTimeoutId = null;
+  }
+}
 const { google } = require('googleapis');
 const Store = require('electron-store').default;
 const http = require('http');
@@ -360,16 +383,19 @@ app.whenReady().then(() => {
   // 결과는 렌더러(React)로 전달해서 헤더 알림 아이콘으로 표시함
   if (app.isPackaged) {
     autoUpdater.autoDownload = false;
+    startUpdateCheckTimeout(); // 🔑 타임아웃 타이머 시작
     autoUpdater.checkForUpdates();
   }
 });
 
 // 🔑 새 버전 발견 시 다이얼로그 대신 렌더러로 정보만 조용히 전달
 autoUpdater.on('update-available', (info) => {
+  markUpdateCheckSettled(); // 🔑 응답이 왔으므로 타임아웃 취소
   if (win) win.webContents.send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes });
 });
 
 autoUpdater.on('update-not-available', () => {
+  markUpdateCheckSettled();
   if (win) win.webContents.send('update-status', { status: 'not-available' });
 });
 
@@ -382,7 +408,15 @@ autoUpdater.on('update-downloaded', (info) => {
 });
 
 autoUpdater.on('error', (err) => {
+  markUpdateCheckSettled(); // 🔑 에러 응답도 "결과가 왔다"고 취급해 타임아웃 취소
   if (win) win.webContents.send('update-status', { status: 'error', message: err.message });
+});
+
+// 🔑 [신규] 렌더러(알림 팝업의 "다시 확인" 버튼)에서 요청할 때 업데이트 확인을 재시도
+ipcMain.on('recheck-for-updates', () => {
+  if (win) win.webContents.send('update-status', { status: 'idle' }); // 🔑 화면을 "확인 중..." 상태로 즉시 되돌림
+  startUpdateCheckTimeout();
+  autoUpdater.checkForUpdates();
 });
 
 // 🔑 렌더러(모달의 "업데이트" 버튼)에서 요청할 때만 실제 다운로드 시작

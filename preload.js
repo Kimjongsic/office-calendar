@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disableJbLogin: () => ipcRenderer.invoke('disable-jb-login'),
   setAutoLaunch: (enable) => ipcRenderer.invoke('set-auto-launch', enable),
   startUpdateDownload: () => ipcRenderer.send('start-update-download'),
+  recheckForUpdates: () => ipcRenderer.send('recheck-for-updates'),
   quitAndInstallUpdate: () => ipcRenderer.send('quit-and-install-update'),
   savePageAsPdf: (defaultFileName, contentSizePx) => ipcRenderer.invoke('save-page-as-pdf', defaultFileName, contentSizePx),
   googleConnect: () => ipcRenderer.invoke('google-connect'),

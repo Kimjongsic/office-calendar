@@ -515,6 +515,11 @@ export default function App() {
     window.electronAPI?.startUpdateDownload();
   };
 
+  // 🔑 [신규] 업데이트 확인 재시도
+  const handleRecheckForUpdates = () => {
+    window.electronAPI?.recheckForUpdates();
+  };
+
   const handleQuitAndInstall = () => {
     window.electronAPI?.quitAndInstallUpdate();
   };
@@ -1741,6 +1746,7 @@ export default function App() {
         isUpdateModalOpen={isUpdateModalOpen}
         setIsUpdateModalOpen={setIsUpdateModalOpen}
         handleStartUpdateDownload={handleStartUpdateDownload}
+        handleRecheckForUpdates={handleRecheckForUpdates}
         handleQuitAndInstall={handleQuitAndInstall}
         isAutoLaunchOn={isAutoLaunchOn}
         handleToggleAutoLaunch={handleToggleAutoLaunch}

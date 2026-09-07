@@ -6,7 +6,7 @@ export default function DashboardHeader({
   syncStatus, isAlwaysOnTop, isMoveLocked, opacityValue, isOpacityDropdownOpen,
   setIsOpacityDropdownOpen, handleToggleAlwaysOnTop, handleToggleMoveLock,
   handleOpacityChange, handleMinimize, handleMaximize, handleClose, appVersion,
-  updateInfo, isUpdateModalOpen, setIsUpdateModalOpen, handleStartUpdateDownload, handleQuitAndInstall,
+  updateInfo, isUpdateModalOpen, setIsUpdateModalOpen, handleStartUpdateDownload, handleQuitAndInstall, handleRecheckForUpdates,
   isAutoLaunchOn, handleToggleAutoLaunch, scheduledShutdownAt,
   isJbLoginEnabled, handleSaveJbPassword, handleDisableJbLogin
 }) {
@@ -261,7 +261,12 @@ export default function DashboardHeader({
               )}
 
               {updateInfo.status === 'error' && (
-                <p className="text-[11px] text-rose-500 text-center py-2">업데이트 확인 중 오류가 발생했습니다.</p>
+                <>
+                  <p className="text-[11px] text-rose-500 text-center py-2">{updateInfo.message || '업데이트 확인 중 오류가 발생했습니다.'}</p>
+                  <button onClick={handleRecheckForUpdates} className="w-full py-1.5 bg-gray-700 hover:bg-gray-800 text-white rounded text-xs font-bold flex items-center justify-center gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5" /> 다시 확인
+                  </button>
+                </>
               )}
 
               {updateInfo.status === 'idle' && (
