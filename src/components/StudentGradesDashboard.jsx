@@ -895,7 +895,11 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
   const overallAvg = schoolAvgGrade(studentData);
   const subjectAverages = SUBJECTS.map((subj) => ({ subject: subj, avg: subjectAvgGrade(studentData, subj) }));
 
-  const termAvgTrend = ALL_TERMS.map((term) => ({ term, avg: termAvgGrade(studentData, term) }));
+  // 🔑 [수정] 1등급이 가장 높게, 9등급이 가장 낮게(바닥) 보이도록 "9-등급" 값으로 막대 높이를 그림
+  const termAvgTrend = ALL_TERMS.map((term) => {
+    const avg = termAvgGrade(studentData, term);
+    return { term, avg, invertedAvg: (avg === null || avg === undefined) ? null : 9 - avg };
+  });
 
   const hasMockData = mockSessions.length > 0 && MOCK_SUBJECTS.some((subj) => studentData.mock[subj].some((c) => c));
 
@@ -1205,16 +1209,23 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
             </div>
           </Card>
 
-          <Card title="학기별 내신 등급" subtitle="전 과목 평균 등급 추이 (막대, 낮을수록 좋음)" style={{ flex: "1 1 380px" }}>
+          <Card title="학기별 내신 등급" subtitle="전 과목 평균 등급 추이 (막대, 높을수록 좋음)" style={{ flex: "1 1 380px" }}>
             <div style={{ height: "200px" }}>
               {chartsReady && (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={termAvgTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#EEF0F3" vertical={false} />
                   <XAxis dataKey="term" tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={{ stroke: "#D8DBE1" }} tickLine={false} />
-                  <YAxis domain={[0, 9]} tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v) => [`${v}등급`, "평균 등급"]} contentStyle={{ fontSize: "12px", borderRadius: "8px", border: "1px solid #E2E5EA" }} />
-                  <Bar dataKey="avg" fill="#1F3A5F" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                  <YAxis
+                    domain={[0, 8]}
+                    ticks={[0, 2, 4, 6, 8]}
+                    tickFormatter={(v) => 9 - v}
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip formatter={(value, name, props) => [`${props.payload.avg}등급`, "평균 등급"]} contentStyle={{ fontSize: "12px", borderRadius: "8px", border: "1px solid #E2E5EA" }} />
+                  <Bar dataKey="invertedAvg" fill="#1F3A5F" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                     <LabelList dataKey="avg" position="top" style={{ fontSize: 11, fill: "#1F3A5F", fontWeight: 700 }} />
                   </Bar>
                 </BarChart>
@@ -1382,7 +1393,7 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
 
       {/* 🔑 [신규] 선택과목 명단 업로드 모달 */}
       {isElectiveUploadModalOpen && (
-        <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsElectiveUploadModalOpen(false)}>
+        <div className="fixed inset-0 z-60 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsElectiveUploadModalOpen(false)}>
           <div className="relative bg-[#F5F6F8] rounded-xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
               <h2 style={{ fontSize: "16px", fontWeight: 800, color: "#1F3A5F", margin: 0 }}>선택과목 명단 업로드</h2>
