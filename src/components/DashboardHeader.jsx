@@ -1,6 +1,6 @@
 // src/components/DashboardHeader.jsx
 import React, { useState } from 'react';
-import { Calendar as CalendarIcon, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff, MessageCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, CalendarOff, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff, MessageCircle, Settings } from 'lucide-react';
 
 export default function DashboardHeader({
   syncStatus, isAlwaysOnTop, isMoveLocked, opacityValue, isOpacityDropdownOpen,
@@ -8,7 +8,7 @@ export default function DashboardHeader({
   handleOpacityChange, handleMinimize, handleMaximize, handleClose, appVersion,
   updateInfo, isUpdateModalOpen, setIsUpdateModalOpen, handleStartUpdateDownload, handleQuitAndInstall, handleRecheckForUpdates,
   isAutoLaunchOn, handleToggleAutoLaunch, scheduledShutdownAt,
-  isJbLoginEnabled, handleSaveJbPassword, handleDisableJbLogin
+  isJbLoginEnabled, handleSaveJbPassword, handleDisableJbLogin, setIsCategoryManageOpen
 }) {
   const [isJbPopoverOpen, setIsJbPopoverOpen] = useState(false); // 🔑 [신규] JB메신저 비밀번호 입력 팝업
   const [jbPasswordInput, setJbPasswordInput] = useState('');
@@ -28,8 +28,11 @@ export default function DashboardHeader({
         style={{ WebkitAppRegion: isMoveLocked ? 'no-drag' : 'drag' }}
       >
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-[#F7F7F5] border border-[#E9E9E6] rounded-md">
-            <CalendarIcon className="w-5 h-5 text-[#37352F]" />
+          {/* 🔑 [수정] 연동 상태를 아이콘 색상/모양으로 표현 (모바일에서 배지 대신 사용) */}
+          <div className={`p-2 border rounded-md ${syncStatus === 'connected' ? 'bg-emerald-50 border-emerald-200' : 'bg-[#F7F7F5] border-[#E9E9E6]'}`}>
+            {syncStatus === 'connected'
+              ? <CalendarIcon className="w-5 h-5 text-emerald-600" />
+              : <CalendarOff className="w-5 h-5 text-gray-400" />}
           </div>
           <div>
             <h1 className="text-base font-black flex items-center gap-2">
@@ -43,7 +46,7 @@ export default function DashboardHeader({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs bg-[#F7F7F5] border border-[#E9E9E6] px-3 py-1.5 rounded-full font-medium">
+        <div className="hidden md:flex items-center gap-2 text-xs bg-[#F7F7F5] border border-[#E9E9E6] px-3 py-1.5 rounded-full font-medium">
           {syncStatus === 'connected' ? (
             <>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
@@ -70,9 +73,20 @@ export default function DashboardHeader({
         })()}
       </div>
 
-      {/* 우측 버튼 그룹 영역 */}
+      {/* 🔑 [신규] 모바일 전용 설정 버튼 — 데스크톱은 캘린더 헤더에 이미 설정 버튼이 있으므로 모바일에서만 표시 */}
+      <button
+        type="button"
+        onClick={() => setIsCategoryManageOpen(true)}
+        className="flex md:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition shrink-0"
+        style={{ WebkitAppRegion: 'no-drag' }}
+        title="설정"
+      >
+        <Settings className="w-5 h-5" />
+      </button>
+
+      {/* 우측 버튼 그룹 영역 — 창 제어/투명도/자동실행 등은 데스크톱 프로그램 전용 기능이라 모바일에서는 전체 숨김 */}
       <div 
-        className="flex items-center gap-1 shrink-0 relative z-50"
+        className="hidden md:flex items-center gap-1 shrink-0 relative z-50"
         style={{ WebkitAppRegion: 'no-drag', appRegion: 'no-drag' }}
       >
         {/* 🔑 [신규] 컴퓨터 시작 시 자동 실행 버튼 */}

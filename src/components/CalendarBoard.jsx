@@ -33,6 +33,7 @@ export default React.memo(function CalendarBoard({
   // 다음 달의 연도와 월 계산 (데이터 바인딩용)
   const nextYear = month === 11 ? year + 1 : year;
   const nextMonth = month === 11 ? 0 : month + 1;
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // 🔑 [신규] 모바일 헤더의 캘린더 선택/설정 팝업
 
   // 지난 달의 연도와 월 계산 (데이터 바인딩용)
   const prevYear = month === 0 ? year - 1 : year;
@@ -340,8 +341,53 @@ export default React.memo(function CalendarBoard({
       style={{ fontFamily: '"Wanted Sans", sans-serif' }}
     >
       
-      {/* 캘린더 컨트롤러 헤더 상단바 */}
-      <div className="flex items-center justify-between pb-4 border-b border-[#E9E9E6] mb-4">
+      {/* 🔑 [신규] 모바일 전용 헤더 — 갤럭시 캘린더처럼 "9월"만 중앙에 크게, 좌우 화살표 + 우측 메뉴 */}
+      <div className="flex md:hidden items-center justify-between mb-3 px-1 relative">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-xl font-extrabold text-[#37352F] shrink-0">{month + 1}월</h2>
+          <div className="flex items-center bg-[#F7F7F5] border border-[#E9E9E6] rounded-md p-0.5 shrink-0">
+            <button onClick={handlePrevMonth} className="p-1 hover:bg-white rounded-sm transition"><ChevronLeft className="w-4 h-4" /></button>
+            <button onClick={handleToday} className="px-2 py-0.5 text-xs font-semibold hover:bg-white rounded-sm transition mx-1">오늘</button>
+            <button onClick={handleNextMonth} className="p-1 hover:bg-white rounded-sm transition"><ChevronRight className="w-4 h-4" /></button>
+          </div>
+        </div>
+        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition shrink-0"><Menu className="w-5 h-5" /></button>
+
+        {isMobileMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setIsMobileMenuOpen(false)} />
+            <div className="absolute top-full right-0 mt-1 w-56 bg-white border border-[#E9E9E6] rounded-xl shadow-xl z-50 p-2 space-y-1">
+              <p className="text-[10px] font-bold text-gray-400 px-2 pt-1">캘린더 선택</p>
+              {calendarList.map((cal) => (
+                <button
+                  key={cal.id}
+                  type="button"
+                  onClick={() => { handleSwitchCalendar(cal.id); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold transition-colors ${cal.id === currentCalendarId ? 'bg-purple-50 text-purple-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate flex-1 text-left">{cal.name}</span>
+                  {cal.isPersonal && <span style={{ fontSize: '10px' }}>🔒</span>}
+                </button>
+              ))}
+              {googleAccountEmail && (
+                <button
+                  type="button"
+                  onClick={() => { handleSwitchToGoogleCalendar(); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold transition-colors ${currentCalendarId === 'google' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <GoogleLogoIcon />
+                  <span className="truncate flex-1 text-left">내 구글 캘린더</span>
+                </button>
+              )}
+
+              </div>
+          </>
+        )}
+      </div>
+
+      {/* 캘린더 컨트롤러 헤더 상단바 (데스크톱 전용) */}
+      <div className="hidden md:flex items-center justify-between pb-4 border-b border-[#E9E9E6] mb-4">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-extrabold text-[#37352F]">{year}년 {month + 1}월</h2>
           <div className="flex items-center bg-[#F7F7F5] border border-[#E9E9E6] rounded-md p-0.5">
@@ -350,7 +396,7 @@ export default React.memo(function CalendarBoard({
             <button onClick={handleNextMonth} className="p-1 hover:bg-white rounded-sm transition"><ChevronRight className="w-4 h-4" /></button>
           </div>
 
-          {/* 🔑 [신규] 캘린더 선택 탭 */}
+          {/* 🔑 캘린더 선택 탭 */}
           <div className="flex items-center gap-1 p-0.5 bg-[#F7F7F5] border border-[#E9E9E6] rounded-lg flex-wrap">
             {calendarList.map((cal) => {
               const isActive = cal.id === currentCalendarId; // 🔑 [수정] 개별 탭은 항상 하나만 활성화
@@ -505,7 +551,7 @@ export default React.memo(function CalendarBoard({
       </div>
 
       {/* 요일 헤더 인덱스 레일 */}
-      <div className="grid grid-cols-[0.8fr_1.2fr_1.2fr_1.2fr_1.2fr_1.2fr_0.8fr] gap-0 text-center font-bold text-xs text-gray-500 border-b border-[#E9E9E6] select-none">
+      <div className="grid grid-cols-7 md:grid-cols-[0.8fr_1.2fr_1.2fr_1.2fr_1.2fr_1.2fr_0.8fr] gap-0 text-center font-bold text-xs text-gray-500 border-b border-gray-100 md:border-[#E9E9E6] select-none">
         <div className="py-2 text-rose-500 border-r border-[#E9E9E6] last:border-r-0">일</div>
         <div className="py-2 border-r border-[#E9E9E6] last:border-r-0">월</div>
         <div className="py-2 border-r border-[#E9E9E6] last:border-r-0">화</div>
@@ -516,7 +562,7 @@ export default React.memo(function CalendarBoard({
       </div>
 
       {/* 노션 스타일 구현 그리드 레일 */}
-      <div className="grid grid-cols-[0.8fr_1.2fr_1.2fr_1.2fr_1.2fr_1.2fr_0.8fr] gap-0 flex-1 min-h-125 w-full min-w-0 border-l border-b border-[#E9E9E6]">
+      <div className="grid grid-cols-7 md:grid-cols-[0.8fr_1.2fr_1.2fr_1.2fr_1.2fr_1.2fr_0.8fr] gap-0 flex-1 min-h-125 w-full min-w-0 md:border-l border-b border-[#E9E9E6]">
         
         {/* 1. 지난 달 이월 일자 렌더링 구역 */}
         {Array.from({ length: firstDayIndex }).map((_, idx) => {
@@ -536,12 +582,34 @@ export default React.memo(function CalendarBoard({
               key={`prev-${idx}`} 
               data-cell-container="true" 
               onClick={() => setSelectedDate(new Date(prevYear, prevMonth, prevDayNum))}
-              className="bg-[#F7F7F5]/40 border-r border-b border-[#E9E9E6] p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0 min-h-36 flex flex-col justify-between relative"
+              className="bg-white md:bg-[#F7F7F5]/40 md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0 h-28 md:min-h-36 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 relative"
             >
-              <div className="flex justify-between items-center opacity-40">
-                <span className="text-xs font-bold px-1.5 py-0.5">{prevDayNum}</span>
+              <div className="flex w-full justify-center md:justify-between items-center opacity-40 shrink-0">
+                <span className="text-sm md:text-xs font-bold w-7 h-7 md:w-auto md:h-auto flex items-center justify-center md:px-1.5 md:py-0.5">{prevDayNum}</span>
               </div>
-              <div className="mt-1 flex-1 overflow-hidden space-y-1">
+
+              {/* 🔑 [수정] 모바일 전용 — 배지 2개까지 표시하고, 넘치면 "+N" 더보기 */}
+              {sortedEvents.length > 0 && (
+                <div className="flex md:hidden flex-col gap-0.5 min-w-0 w-full opacity-60">
+                  {sortedEvents.slice(0, 3).map((event) => {
+                    const theme = categories[event.category] || categories['기타'] || NOTION_PALETTES.gray;
+                    return (
+                      <span
+                        key={event.id}
+                        className={`block w-full text-[9px] font-bold leading-none px-1.5 py-1 rounded truncate ${theme.bg} ${theme.text}`}
+                      >
+                        {event.title}
+                      </span>
+                    );
+                  })}
+                  {sortedEvents.length > 3 && (
+                    <span className="text-[8px] text-gray-400 font-bold px-1 leading-none">+{sortedEvents.length - 3}</span>
+                  )}
+                </div>
+              )}
+
+              {/* 🔑 데스크톱 전용 — 기존 일정 목록 그대로 */}
+              <div className="hidden md:block mt-1 flex-1 overflow-hidden space-y-1">
                 {visibleEvents.map(event => {
                   const theme = categories[event.category] || categories['기타'] || NOTION_PALETTES.gray;
                   const baseColor = event.colorHex || theme.color || '#EAE4F2';
@@ -601,14 +669,19 @@ export default React.memo(function CalendarBoard({
               }}
               onDragOver={handleDragOver}
               onDrop={(e) => { e.preventDefault(); handleMoveEventToDate(dateStr); }}
-              className={`group border-r border-b border-[#E9E9E6] p-2 min-h-36 flex flex-col justify-between transition cursor-pointer relative w-full min-w-0 overflow-hidden ${
-                isSelected ? 'bg-slate-50/80' : 'bg-white hover:bg-slate-50/40'
+               className={`group md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 h-28 md:min-h-36 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 transition cursor-pointer relative w-full min-w-0 overflow-hidden ${
+                isSelected ? 'bg-white ring-1 ring-gray-200 ring-inset rounded-lg z-10' : 'bg-white hover:bg-slate-50/40'
               }`}
             >
-              <div className="flex justify-between items-center shrink-0 gap-1">
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full shrink-0 ${isToday ? 'bg-amber-400 text-white' : currentDayOfWeek === 0 ? 'text-rose-500' : currentDayOfWeek === 6 ? 'text-sky-500' : 'text-gray-700'}`}>{dayNum}</span>
+              <div className="flex w-full justify-center md:justify-between items-center shrink-0 gap-1 md:mb-0.5">
+                <span className={`text-sm md:text-xs font-bold shrink-0 flex items-center justify-center w-7 h-7 md:w-auto md:h-auto md:px-1.5 md:py-0.5
+                  ${isToday ? 'bg-amber-400 text-white rounded-lg md:rounded-full' : 'rounded-full'}
+                  ${!isToday && currentDayOfWeek === 0 ? 'text-rose-500' : ''}
+                  ${!isToday && currentDayOfWeek === 6 ? 'text-sky-500' : ''}
+                  ${!isToday && currentDayOfWeek !== 0 && currentDayOfWeek !== 6 ? 'text-gray-700' : ''}
+                `}>{dayNum}</span>
 
-                <div className="flex items-center gap-1 min-w-0 justify-end">
+                <div className="hidden md:flex items-center gap-1 min-w-0 justify-end">
                   {badgeEvents.map((bEvent) => {
                     const bTheme = categories[bEvent.category] || NOTION_PALETTES.gray;
                     const dotColor = extractHexColor(bTheme.text);
@@ -629,7 +702,8 @@ export default React.memo(function CalendarBoard({
                 </div>
               </div>
 
-              <div data-date={dateStr} className="day-events-container mt-1 flex-1 overflow-y-auto space-y-1 max-h-28 scrollbar-none min-w-0 pb-1">
+              {/* 🔑 [수정] 데스크톱: 일정 카드 목록 그대로 표시 / 모바일: 갤럭시 캘린더처럼 카테고리 색 점만 작게 표시 */}
+              <div data-date={dateStr} className="hidden md:block day-events-container mt-1 flex-1 overflow-y-auto space-y-1 max-h-28 scrollbar-none min-w-0 pb-1">
                 {visibleEvents.map(event => renderEventCard(event, dateStr))}
                 
                 {isOverLimit && (
@@ -641,6 +715,26 @@ export default React.memo(function CalendarBoard({
                   </button>
                 )}
               </div>
+
+              {/* 🔑 [수정] 모바일 전용 — 배지 2개까지 표시하고, 넘치면 "+N" 더보기 */}
+              {sortedEvents.length > 0 && (
+                <div className="flex md:hidden flex-col gap-0.5 min-w-0 w-full">
+                  {sortedEvents.slice(0, 3).map((event) => {
+                    const theme = categories[event.category] || NOTION_PALETTES.gray;
+                    return (
+                      <span
+                        key={event.id}
+                        className={`block w-full text-[9px] font-bold leading-none px-1.5 py-1 rounded truncate ${theme.bg} ${theme.text}`}
+                      >
+                        {event.title}
+                      </span>
+                    );
+                  })}
+                  {sortedEvents.length > 3 && (
+                    <span className="text-[8px] text-gray-400 font-bold px-1 leading-none">+{sortedEvents.length - 3}</span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -663,12 +757,34 @@ export default React.memo(function CalendarBoard({
               key={`next-${nextDayNum}`}
               data-cell-container="true" 
               onClick={() => setSelectedDate(new Date(nextYear, nextMonth, nextDayNum))}
-              className="bg-[#F7F7F5]/40 border-r border-b border-[#E9E9E6] p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0 min-h-36 flex flex-col justify-between relative"
+              className="bg-white md:bg-[#F7F7F5]/40 md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0 h-28 md:min-h-36 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 relative"
             >
-              <div className="flex justify-between items-center opacity-40">
-                <span className="text-xs font-bold px-1.5 py-0.5">{nextDayNum}</span>
+              <div className="flex w-full justify-center md:justify-between items-center opacity-40 shrink-0">
+                <span className="text-sm md:text-xs font-bold w-7 h-7 md:w-auto md:h-auto flex items-center justify-center md:px-1.5 md:py-0.5">{nextDayNum}</span>
               </div>
-              <div className="mt-1 flex-1 overflow-hidden space-y-1">
+
+              {/* 🔑 [수정] 모바일 전용 — 배지 2개까지 표시하고, 넘치면 "+N" 더보기 */}
+              {sortedEvents.length > 0 && (
+                <div className="flex md:hidden flex-col gap-0.5 min-w-0 w-full opacity-60">
+                  {sortedEvents.slice(0, 3).map((event) => {
+                    const theme = categories[event.category] || categories['기타'] || NOTION_PALETTES.gray;
+                    return (
+                      <span
+                        key={event.id}
+                        className={`block w-full text-[9px] font-bold leading-none px-1.5 py-1 rounded truncate ${theme.bg} ${theme.text}`}
+                      >
+                        {event.title}
+                      </span>
+                    );
+                  })}
+                  {sortedEvents.length > 3 && (
+                    <span className="text-[8px] text-gray-400 font-bold px-1 leading-none">+{sortedEvents.length - 3}</span>
+                  )}
+                </div>
+              )}
+
+              {/* 🔑 데스크톱 전용 — 기존 일정 목록 그대로 */}
+              <div className="hidden md:block mt-1 flex-1 overflow-hidden space-y-1">
                 {visibleEvents.map(event => {
                   const theme = categories[event.category] || categories['기타'] || NOTION_PALETTES.gray;
                   const baseColor = event.colorHex || theme.color || '#EAE4F2';

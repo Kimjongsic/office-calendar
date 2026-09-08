@@ -277,6 +277,8 @@ export default function App() {
   const [editingProposalId, setEditingProposalId] = useState(null); // 🔑 분석 카드 수정 모드 추적
 
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(false);
+  const [isMobileDayPopupOpen, setIsMobileDayPopupOpen] = useState(false); // 🔑 모바일 전용 — 날짜 클릭 시 뜨는 일정 팝업
+  const [mobileView, setMobileView] = useState('calendar'); // 🔑 [신규] 모바일 전용 — 지금 보고 있는 화면 하나 ('calendar' | 패널 이름)
   const [isAutoLaunchOn, setIsAutoLaunchOn] = useState(false); // 🔑 컴퓨터 시작 시 자동 실행 여부
   const [isJbLoginEnabled, setIsJbLoginEnabled] = useState(false); // 🔑 [신규] JB메신저 자동로그인 활성화 여부
   const [scheduledShutdownAt, setScheduledShutdownAt] = useState(null); // 🔑 [신규] 예약 종료 시각 (ISO 문자열, 없으면 null)
@@ -1751,29 +1753,35 @@ export default function App() {
         isAutoLaunchOn={isAutoLaunchOn}
         handleToggleAutoLaunch={handleToggleAutoLaunch}
         scheduledShutdownAt={scheduledShutdownAt}
+        setIsCategoryManageOpen={setIsCategoryManageOpen}
         isJbLoginEnabled={isJbLoginEnabled}
         handleSaveJbPassword={handleSaveJbPassword}
         handleDisableJbLogin={handleDisableJbLogin}
       />
 
       <div className="flex-1 flex flex-row min-w-0 min-h-0 w-full relative overflow-hidden gap-1.5">
-        <div className="flex-1 flex flex-col gap-1.5 p-3 md:p-3.5 min-w-0 min-h-0 overflow-y-auto">
-          <TopWidgets 
-            todayNotice={todayNotice} activeNoticeIdx={activeNoticeIdx} setActiveNoticeIdx={setActiveNoticeIdx}
-            setNoticeFormList={setNoticeFormList} setIsNoticeEditOpen={setIsNoticeEditOpen} calculatedDdayValue={calculatedDdayValue}
-            setDdayForm={setDdayForm} setIsDdayEditOpen={setIsDdayEditOpen} currentTimeStr={currentTimeStr} currentDateStr={currentDateStr}
-          />
+        <div className="flex-1 flex flex-col gap-1.5 p-3 md:p-3.5 min-w-0 min-h-0 overflow-y-auto pb-24 md:pb-3.5">
+          {/* 🔑 [수정] 오늘의 한마디/D-Day/시계는 모바일에서는 화면을 너무 많이 차지해 숨김 */}
+          <div className="hidden md:block">
+            <TopWidgets 
+              todayNotice={todayNotice} activeNoticeIdx={activeNoticeIdx} setActiveNoticeIdx={setActiveNoticeIdx}
+              setNoticeFormList={setNoticeFormList} setIsNoticeEditOpen={setIsNoticeEditOpen} calculatedDdayValue={calculatedDdayValue}
+              setDdayForm={setDdayForm} setIsDdayEditOpen={setIsDdayEditOpen} currentTimeStr={currentTimeStr} currentDateStr={currentDateStr}
+            />
+          </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-5 gap-1.5 items-start w-full">
+            <div className={mobileView === 'calendar' ? 'contents' : 'hidden md:contents'}>
             <CalendarBoard 
               year={year} month={month} handlePrevMonth={handlePrevMonth} handleToday={handleToday} handleNextMonth={handleNextMonth}
               setIsCategoryManageOpen={setIsCategoryManageOpen} firstDayIndex={firstDayIndex} prevDaysInMonth={prevDaysInMonth}
               daysInMonth={daysInMonth} filteredEvents={filteredEvents} categories={displayCategories} NOTION_PALETTES={NOTION_PALETTES}
-              extractHexColor={extractHexColor} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setNewEvent={setNewEvent}
+              extractHexColor={extractHexColor} selectedDate={selectedDate} setNewEvent={setNewEvent}
               setIsAddModalOpen={setIsAddModalOpen} setSelectedEvent={setSelectedEvent} setIsDetailModalOpen={setIsDetailModalOpen}
               formatDateString={formatDateString} activeSidePanel={activeSidePanel.length > 0}
               onEventOrderChange={handleEventOrderPreview}
               onEventOrderCommit={handleEventOrderCommit}
+              setSelectedDate={(date) => { setSelectedDate(date); setIsMobileDayPopupOpen(true); }}
               calendarList={[...calendarList, ...personalCalendarList]} currentCalendarId={currentCalendarId}
               isCalendarSwitcherOpen={isCalendarSwitcherOpen} setIsCalendarSwitcherOpen={setIsCalendarSwitcherOpen}
               newCalendarName={newCalendarName} setNewCalendarName={setNewCalendarName}
@@ -1787,9 +1795,10 @@ export default function App() {
               handleSwitchToGoogleCalendar={handleSwitchToGoogleCalendar}
               onEventDateMove={handleEventDateMove}
             />
+            </div>
 
-            {/* 🔑 [수정] 사이드바만 스크롤 시 화면에 고정되도록 sticky 적용 */}
-            <div className="sticky top-3.5 self-start">
+            {/* 🔑 사이드바만 스크롤 시 화면에 고정되도록 sticky 적용 */}
+            <div className={`md:sticky md:top-3.5 self-start ${mobileView === 'calendar' ? 'hidden md:block' : 'block'}`}>
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
             <SideAccordionPanel 
               activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} closeSidePanel={closeSidePanel} selectedDate={selectedDate}
@@ -1828,7 +1837,7 @@ export default function App() {
         </div>
 
         {/* 최우측 레이아웃 인덱스 네비게이션 */}
-        <div className="w-14 bg-white border-l border-[#E9E9E6] flex flex-col items-center py-4 justify-start gap-5 z-40 shrink-0 window-no-drag shadow-xs">
+        <div className="hidden md:flex w-14 bg-white border-l border-[#E9E9E6] flex-col items-center py-4 justify-start gap-5 z-40 shrink-0 window-no-drag shadow-xs">
           <button type="button" onClick={() => toggleSidePanel('meal')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('meal') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Utensils className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('timetable')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('timetable') ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><CalendarIcon className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('ai')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('ai') ? 'bg-purple-50 border-purple-200 text-purple-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Sparkles className="w-5 h-5" /></button>
@@ -1843,7 +1852,125 @@ export default function App() {
             {scheduledShutdownAt && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>}
           </button>
         </div>
+
+        {/* 🔑 [신규] 모바일 전용 하단 탭 막대 — 데스크톱 사이드바와 같은 기능, 가로 아이콘 나열 */}
+        <div
+          className="flex md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[#E9E9E6] items-center justify-around px-1 shadow-[0_-2px_8px_rgba(0,0,0,0.04)]"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 8px)', paddingTop: '8px' }}
+        >
+          {/* 🔑 [수정] 한 번에 하나의 화면만 — 캘린더 포함, 탭처럼 전환 */}
+          <button type="button" onClick={() => { setMobileView('calendar'); setActiveSidePanel([]); }} className={`p-2 rounded-lg ${mobileView === 'calendar' ? 'text-purple-700' : 'text-gray-400'}`}><CalendarDays className="w-5 h-5" /></button>
+          <button type="button" onClick={() => { setMobileView('meal'); setActiveSidePanel(['meal']); }} className={`p-2 rounded-lg ${mobileView === 'meal' ? 'text-emerald-700' : 'text-gray-400'}`}><Utensils className="w-5 h-5" /></button>
+          <button type="button" onClick={() => { setMobileView('timetable'); setActiveSidePanel(['timetable']); }} className={`p-2 rounded-lg ${mobileView === 'timetable' ? 'text-blue-700' : 'text-gray-400'}`}><CalendarIcon className="w-5 h-5" /></button>
+          <button type="button" onClick={() => { setMobileView('bookmark'); setActiveSidePanel(['bookmark']); }} className={`p-2 rounded-lg ${mobileView === 'bookmark' ? 'text-blue-700' : 'text-gray-400'}`}><Bookmark className="w-5 h-5" /></button>
+          <button type="button" onClick={() => { setMobileView('salary'); setActiveSidePanel(['salary']); }} className={`p-2 rounded-lg ${mobileView === 'salary' ? 'text-amber-700' : 'text-gray-400'}`}><Wallet className="w-5 h-5" /></button>
+          <button type="button" onClick={() => { setMobileView('gradeConv'); setActiveSidePanel(['gradeConv']); }} className={`p-2 rounded-lg ${mobileView === 'gradeConv' ? 'text-rose-700' : 'text-gray-400'}`}><Calculator className="w-5 h-5" /></button>
+          <button type="button" onClick={() => { setMobileView('memo'); setActiveSidePanel(['memo']); }} className={`p-2 rounded-lg ${mobileView === 'memo' ? 'text-yellow-700' : 'text-gray-400'}`}><StickyNote className="w-5 h-5" /></button>
+        </div>
       </div>
+
+      {/* 🔑 [수정] 모바일 전용 — 갤럭시 캘린더 스타일의 중앙 떠 있는 카드형 일정 팝업 */}
+      {isMobileDayPopupOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-50 bg-black/20 flex items-center justify-center p-4"
+          onClick={() => setIsMobileDayPopupOpen(false)}
+        >
+          <div
+            className="w-full max-w-md bg-[#F2F2F2] rounded-3xl shadow-2xl h-[70vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 헤더 — 날짜 + 요일 + 배지 카테고리(야자감독 등) */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 shrink-0 gap-2">
+              <p className="flex items-baseline gap-2 min-w-0">
+                <span className="text-3xl font-extrabold text-gray-900 shrink-0">{selectedDate.getDate()}</span>
+                <span className="text-base font-bold text-gray-800 shrink-0">{['일', '월', '화', '수', '목', '금', '토'][selectedDate.getDay()]}요일</span>
+                {/* 🔑 [신규] 배지 카테고리(야자감독 등)를 헤더에 표시 */}
+                {(() => {
+                  const selectedDateStr = formatDateString(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+                  const badgeEventsForDay = events.filter(
+                    (ev) => displayCategories[ev.category]?.showAsBadge &&
+                      ev.startDate <= selectedDateStr && (ev.endDate || ev.startDate) >= selectedDateStr
+                  );
+                  if (badgeEventsForDay.length === 0) return null;
+                  return badgeEventsForDay.map((ev) => {
+                    const theme = displayCategories[ev.category] || NOTION_PALETTES.gray;
+                    return (
+                      <span key={ev.id} className={`text-xs font-bold px-2 py-1 rounded-full truncate ${theme.bg} ${theme.text}`}>
+                        {ev.title}
+                      </span>
+                    );
+                  });
+                })()}
+              </p>
+              <button onClick={() => setIsMobileDayPopupOpen(false)} className="p-1.5 hover:bg-black/5 rounded-full transition shrink-0">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* 본문 — 흰 카드 안에 일정 목록 */}
+            <div className="flex-1 mx-3 bg-white rounded-2xl overflow-y-auto px-4 py-4 space-y-2.5 min-h-0">
+              <p className="text-xs text-gray-400 font-semibold">{selectedDate.getFullYear()}년 {selectedDate.getMonth() + 1}월</p>
+              {(() => {
+                const selectedDateStr = formatDateString(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+                // 🔑 [수정] 배지로 헤더에 이미 표시된 카테고리(야자감독 등)는 목록에서 제외
+                const selectedDayEvents = filteredEvents.filter(
+                  (ev) => !displayCategories[ev.category]?.showAsBadge &&
+                    ev.startDate <= selectedDateStr && (ev.endDate || ev.startDate) >= selectedDateStr
+                );
+                if (selectedDayEvents.length === 0) {
+                  return <p className="text-sm text-gray-300 text-center py-16">등록된 일정이 없습니다.</p>;
+                }
+                return selectedDayEvents.map((ev) => {
+                  const theme = displayCategories[ev.category] || NOTION_PALETTES.gray;
+                  const isMultiDay = ev.startDate !== (ev.endDate || ev.startDate);
+                  return (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      onClick={() => { setSelectedEvent(ev); setIsDetailModalOpen(true); setIsMobileDayPopupOpen(false); }}
+                      className={`w-full text-left flex items-start gap-3 px-4 py-3.5 rounded-2xl ${theme.bg}`}
+                    >
+                      <CalendarIcon className={`w-5 h-5 shrink-0 mt-0.5 ${theme.text}`} />
+                      <span className="flex-1 min-w-0">
+                        <span className={`block text-[15px] font-bold ${theme.text}`}>{ev.title}</span>
+                        <span className="block text-xs text-gray-500 mt-0.5">
+                          {ev.startTime ? `${ev.startTime}${ev.endTime ? ` - ${ev.endTime}` : ''}` : (isMultiDay ? `${ev.startDate} ~ ${ev.endDate}` : '하루 종일')}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* 하단 — 일정 추가 */}
+            <div className="flex items-center gap-2 p-3 shrink-0">
+              <button
+                onClick={() => {
+                  const dateStr = formatDateString(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+                  setNewEvent(prev => ({ ...prev, startDate: dateStr, endDate: dateStr }));
+                  setIsAddModalOpen(true);
+                  setIsMobileDayPopupOpen(false);
+                }}
+                className="flex-1 text-left px-5 py-3.5 bg-gray-200/70 hover:bg-gray-200 text-gray-500 rounded-full text-sm transition"
+              >
+                {selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일에 추가
+              </button>
+              <button
+                onClick={() => {
+                  const dateStr = formatDateString(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+                  setNewEvent(prev => ({ ...prev, startDate: dateStr, endDate: dateStr }));
+                  setIsAddModalOpen(true);
+                  setIsMobileDayPopupOpen(false);
+                }}
+                className="w-14 h-14 bg-white hover:bg-gray-50 rounded-full shadow-md flex items-center justify-center transition shrink-0"
+              >
+                <Plus className="w-6 h-6 text-gray-700" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 일정 등록 모달창 */}
       {isAddModalOpen && (
@@ -2268,7 +2395,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-amber-50/50 border border-amber-100 p-3.5 rounded-lg space-y-2">
+            <div className="hidden md:block bg-amber-50/50 border border-amber-100 p-3.5 rounded-lg space-y-2">
               <p className="text-xs font-bold text-amber-900">야자감독 구글시트 자동 동기화</p>
 
               {isEditingSheetSyncId ? (
@@ -2310,7 +2437,7 @@ export default function App() {
               )}
             </div>
 
-            <div className="bg-blue-50/50 border border-blue-100 p-3.5 rounded-lg space-y-3">
+            <div className="hidden md:block bg-blue-50/50 border border-blue-100 p-3.5 rounded-lg space-y-3">
               <p className="text-xs font-bold text-blue-900">개인 구글 캘린더 연동</p>
               {googleAccountEmail ? (
                 <div className="flex items-center justify-between bg-white border border-blue-200 rounded-md px-3 py-2">
@@ -2325,7 +2452,7 @@ export default function App() {
               <p className="text-[10px] text-gray-400 leading-snug">연동한 구글 캘린더는 본인만 볼 수 있으며 다른 선생님과 공유되지 않습니다.</p>
             </div>
 
-            <div className="bg-purple-50/50 border border-purple-100 rounded-lg overflow-hidden">
+            <div className="hidden md:block bg-purple-50/50 border border-purple-100 rounded-lg overflow-hidden">
               <button
                 type="button"
                 onClick={() => setIsGeminiSectionOpen(!isGeminiSectionOpen)}
