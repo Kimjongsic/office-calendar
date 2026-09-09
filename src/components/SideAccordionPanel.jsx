@@ -771,7 +771,10 @@ export default React.memo(function SideAccordionPanel({
   const hasTeachers = teacherList.length > 0;
 
   return (
-    <div className="xl:col-span-1 w-full min-w-0 flex flex-col gap-3">
+    <div
+      className="w-full min-w-0 grid gap-1.5"
+      style={{ gridTemplateColumns: `repeat(${activeSidePanel.length}, minmax(0, 1fr))` }}
+    >
 
         {activeSidePanel.includes('timetable') && (
           <aside style={{ order: activeSidePanel.indexOf('timetable') }} className="w-full bg-white border border-[#E9E9E6] rounded-xl shadow-sm p-4 relative min-w-0 max-h-220 animate-in fade-in slide-in-from-top-2 duration-200 text-xs">

@@ -293,7 +293,7 @@ export default function App() {
   };
   const [meals, setMeals] = useState({});
   const [activeSidePanel, setActiveSidePanel] = useState([]); // 🔑 [수정] 여러 패널 동시에 열 수 있도록 배열로 변경
-  const MAX_OPEN_SIDE_PANELS = 3;
+  const MAX_OPEN_SIDE_PANELS = 2;
 
   // 🌟 [추가 상태] 실시간으로 공유될 전역 교사/학급 시간표 통합 매트릭스 원격 상태 선언
   const [customTimetables, setCustomTimetables] = useState({ classes: {}, teachers: {} });
@@ -1778,7 +1778,7 @@ export default function App() {
               daysInMonth={daysInMonth} filteredEvents={filteredEvents} categories={displayCategories} NOTION_PALETTES={NOTION_PALETTES}
               extractHexColor={extractHexColor} selectedDate={selectedDate} setNewEvent={setNewEvent}
               setIsAddModalOpen={setIsAddModalOpen} setSelectedEvent={setSelectedEvent} setIsDetailModalOpen={setIsDetailModalOpen}
-              formatDateString={formatDateString} activeSidePanel={activeSidePanel.length > 0}
+              formatDateString={formatDateString} sidePanelCount={activeSidePanel.length}
               onEventOrderChange={handleEventOrderPreview}
               onEventOrderCommit={handleEventOrderCommit}
               setSelectedDate={(date) => { setSelectedDate(date); setIsMobileDayPopupOpen(true); }}
@@ -1798,7 +1798,7 @@ export default function App() {
             </div>
 
             {/* 🔑 사이드바만 스크롤 시 화면에 고정되도록 sticky 적용 */}
-            <div className={`md:sticky md:top-3.5 self-start ${mobileView === 'calendar' ? 'hidden md:block' : 'block'}`}>
+            <div className={`md:sticky md:top-3.5 self-start min-w-0 ${activeSidePanel.length === 0 ? 'xl:hidden' : activeSidePanel.length === 2 ? 'xl:col-span-2' : 'xl:col-span-1'} ${mobileView === 'calendar' ? 'hidden md:block' : 'block'}`}>
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
             <SideAccordionPanel 
               activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} closeSidePanel={closeSidePanel} selectedDate={selectedDate}

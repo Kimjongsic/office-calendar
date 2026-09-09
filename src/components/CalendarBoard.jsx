@@ -6,7 +6,7 @@ export default React.memo(function CalendarBoard({
   year, month, handlePrevMonth, handleToday, handleNextMonth, setIsCategoryManageOpen,
   firstDayIndex, prevDaysInMonth, daysInMonth, filteredEvents, categories, NOTION_PALETTES,
   extractHexColor, selectedDate, setSelectedDate, setNewEvent, setIsAddModalOpen,
-  setSelectedEvent, setIsDetailModalOpen, formatDateString, activeSidePanel,
+  setSelectedEvent, setIsDetailModalOpen, formatDateString, sidePanelCount,
   onEventOrderChange,   // 드래그 중 화면 미리보기 전용 (로컬 state만 갱신)
   onEventOrderCommit,   // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
   calendarList, currentCalendarId, isCalendarSwitcherOpen, setIsCalendarSwitcherOpen,
@@ -337,7 +337,7 @@ export default React.memo(function CalendarBoard({
 
   return (
     <section 
-      className={`${activeSidePanel ? 'xl:col-span-4' : 'xl:col-span-5'} bg-white border border-[#E9E9E6] rounded-lg p-4 shadow-sm flex flex-col min-h-187.5 min-w-0 transition-all duration-300 relative`}
+      className={`${sidePanelCount === 2 ? 'xl:col-span-3' : sidePanelCount === 1 ? 'xl:col-span-4' : 'xl:col-span-5'} bg-white border border-[#E9E9E6] rounded-lg p-4 shadow-sm flex flex-col min-h-187.5 min-w-0 transition-all duration-300 relative`}
       style={{ fontFamily: '"Wanted Sans", sans-serif' }}
     >
       
@@ -582,7 +582,7 @@ export default React.memo(function CalendarBoard({
               key={`prev-${idx}`} 
               data-cell-container="true" 
               onClick={() => setSelectedDate(new Date(prevYear, prevMonth, prevDayNum))}
-              className="bg-white md:bg-[#F7F7F5]/40 md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0 h-28 md:min-h-36 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 relative"
+              className="bg-white md:bg-[#F7F7F5]/40 md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0 h-28 md:h-40 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 relative"
             >
               <div className="flex w-full justify-center md:justify-between items-center opacity-40 shrink-0">
                 <span className="text-sm md:text-xs font-bold w-7 h-7 md:w-auto md:h-auto flex items-center justify-center md:px-1.5 md:py-0.5">{prevDayNum}</span>
@@ -669,8 +669,8 @@ export default React.memo(function CalendarBoard({
               }}
               onDragOver={handleDragOver}
               onDrop={(e) => { e.preventDefault(); handleMoveEventToDate(dateStr); }}
-               className={`group md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 h-28 md:min-h-36 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 transition cursor-pointer relative w-full min-w-0 overflow-hidden ${
-                isSelected ? 'bg-white ring-1 ring-gray-200 ring-inset rounded-lg z-10' : 'bg-white hover:bg-slate-50/40'
+               className={`group md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 h-28 md:h-40 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 transition cursor-pointer relative w-full min-w-0 overflow-hidden ${
+                isSelected ? 'bg-white ring-1 ring-gray-200 ring-inset rounded-lg z-10 md:bg-slate-50/80 md:ring-0 md:rounded-none' : 'bg-white hover:bg-slate-50/40'
               }`}
             >
               <div className="flex w-full justify-center md:justify-between items-center shrink-0 gap-1 md:mb-0.5">
@@ -703,7 +703,7 @@ export default React.memo(function CalendarBoard({
               </div>
 
               {/* 🔑 [수정] 데스크톱: 일정 카드 목록 그대로 표시 / 모바일: 갤럭시 캘린더처럼 카테고리 색 점만 작게 표시 */}
-              <div data-date={dateStr} className="hidden md:block day-events-container mt-1 flex-1 overflow-y-auto space-y-1 max-h-28 scrollbar-none min-w-0 pb-1">
+              <div data-date={dateStr} className="hidden md:block day-events-container mt-1 flex-1 overflow-y-auto space-y-1 scrollbar-none min-w-0 pb-1">
                 {visibleEvents.map(event => renderEventCard(event, dateStr))}
                 
                 {isOverLimit && (
@@ -757,7 +757,7 @@ export default React.memo(function CalendarBoard({
               key={`next-${nextDayNum}`}
               data-cell-container="true" 
               onClick={() => setSelectedDate(new Date(nextYear, nextMonth, nextDayNum))}
-              className="bg-white md:bg-[#F7F7F5]/40 md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0 h-28 md:min-h-36 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 relative"
+              className="bg-white md:bg-[#F7F7F5]/40 md:border-r border-b border-gray-100 md:border-[#E9E9E6] p-1 md:p-2 text-gray-300 text-xs text-left select-none overflow-hidden min-w-0 h-28 md:h-40 flex flex-col items-center md:items-stretch justify-start gap-1.5 md:justify-between md:gap-0 relative"
             >
               <div className="flex w-full justify-center md:justify-between items-center opacity-40 shrink-0">
                 <span className="text-sm md:text-xs font-bold w-7 h-7 md:w-auto md:h-auto flex items-center justify-center md:px-1.5 md:py-0.5">{nextDayNum}</span>
