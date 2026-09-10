@@ -21,3 +21,46 @@ body {
 input, button, select, textarea {
   font-family: var(--font-sans);
 }
+
+/* 6. 🐠 어항(물고기 키우기) 전용 애니메이션
+   - 물고기 위치는 JS(rAF)가 transform으로 직접 옮기고,
+     꼬리·기포·수초 같은 반복 움직임만 CSS로 처리해 CPU를 아낍니다. */
+@keyframes ft-bubble {
+  0%   { transform: translateY(0) translateX(0) scale(0.8); opacity: 0; }
+  12%  { opacity: 0.55; }
+  85%  { opacity: 0.35; }
+  100% { transform: translateY(-240px) translateX(12px) scale(1); opacity: 0; }
+}
+.ft-bubble { animation-name: ft-bubble; animation-timing-function: linear; animation-iteration-count: infinite; }
+
+@keyframes ft-tail {
+  0%, 100% { transform: rotate(-7deg); }
+  50%      { transform: rotate(7deg); }
+}
+.ft-tail { animation: ft-tail 0.62s ease-in-out infinite; }
+
+@keyframes ft-fin {
+  0%, 100% { transform: rotate(-5deg); }
+  50%      { transform: rotate(5deg); }
+}
+.ft-fin { animation: ft-fin 1.5s ease-in-out infinite; }
+
+@keyframes ft-sway {
+  0%, 100% { transform: rotate(-3.5deg); }
+  50%      { transform: rotate(3.5deg); }
+}
+.ft-sway { animation-name: ft-sway; animation-timing-function: ease-in-out; animation-iteration-count: infinite; animation-duration: 4s; }
+
+@keyframes ft-shimmer {
+  0%, 100% { opacity: 0.10; transform: translateX(-6%); }
+  50%      { opacity: 0.26; transform: translateX(6%); }
+}
+.ft-shimmer { animation: ft-shimmer 7.5s ease-in-out infinite; }
+
+@keyframes ft-point-pop {
+  0%   { opacity: 0; transform: translateY(10px) scale(0.9); }
+  15%  { opacity: 1; transform: translateY(0) scale(1); }
+  75%  { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-16px) scale(0.95); }
+}
+.ft-point-pop { animation: ft-point-pop 2s ease-out forwards; }

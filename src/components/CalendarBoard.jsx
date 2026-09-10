@@ -337,7 +337,7 @@ export default React.memo(function CalendarBoard({
 
   return (
     <section 
-      className={`${sidePanelCount === 2 ? 'xl:col-span-3' : sidePanelCount === 1 ? 'xl:col-span-4' : 'xl:col-span-5'} bg-white border border-[#E9E9E6] rounded-lg p-4 shadow-sm flex flex-col min-h-187.5 min-w-0 transition-all duration-300 relative`}
+      className={`${sidePanelCount === 2 ? 'xl:col-span-3' : sidePanelCount === 1 ? 'xl:col-span-4' : 'xl:col-span-5'} bg-white border border-[#E9E9E6] rounded-lg px-1 py-3 md:p-4 shadow-sm flex flex-col min-h-187.5 min-w-0 transition-all duration-300 relative`}
       style={{ fontFamily: '"Wanted Sans", sans-serif' }}
     >
       
@@ -596,7 +596,7 @@ export default React.memo(function CalendarBoard({
                     return (
                       <span
                         key={event.id}
-                        className={`block w-full text-[9px] font-bold leading-none px-1.5 py-1 rounded truncate ${theme.bg} ${theme.text}`}
+                        className={`block w-full text-[10px] font-bold leading-none px-1 py-1 rounded truncate ${theme.bg} ${theme.text}`}
                       >
                         {event.title}
                       </span>
@@ -724,7 +724,7 @@ export default React.memo(function CalendarBoard({
                     return (
                       <span
                         key={event.id}
-                        className={`block w-full text-[9px] font-bold leading-none px-1.5 py-1 rounded truncate ${theme.bg} ${theme.text}`}
+                        className={`block w-full text-[10px] font-bold leading-none px-1 py-1 rounded truncate ${theme.bg} ${theme.text}`}
                       >
                         {event.title}
                       </span>
@@ -771,7 +771,7 @@ export default React.memo(function CalendarBoard({
                     return (
                       <span
                         key={event.id}
-                        className={`block w-full text-[9px] font-bold leading-none px-1.5 py-1 rounded truncate ${theme.bg} ${theme.text}`}
+                        className={`block w-full text-[10px] font-bold leading-none px-1 py-1 rounded truncate ${theme.bg} ${theme.text}`}
                       >
                         {event.title}
                       </span>

@@ -16,6 +16,8 @@ const TEACHER_SALARY_TABLE = {
 };
 // 엑셀 양식 생성 및 업로드 파싱을 위한 SheetJS 임포트
 import * as XLSX from 'xlsx';
+// 🐠 [신규] 어항(물고기 키우기) 패널
+import FishTankPanel from './FishTankPanel';
 
 const DAYS_SHORT = ['월', '화', '수', '목', '금'];
 const PERIODS = ['1교시', '2교시', '3교시', '4교시', '5교시', '6교시', '7교시'];
@@ -113,7 +115,10 @@ export default React.memo(function SideAccordionPanel({
   sharedMemos, editingMemoId,
   handleDeleteMemo, handleStartEditMemo, handleStartNewMemo, handleFinishEditMemo, handleReorderMemos, handleToggleMemoShare,
   scheduledShutdownAt, handleScheduleShutdown, handleCancelShutdown,
-  mealPhotos, handleUploadMealPhoto, handleDeleteMealPhoto
+  mealPhotos, handleUploadMealPhoto, handleDeleteMealPhoto,
+  myFishTank, myTankOwnerId, fishTanks, fishPoints, isFishDevMode,
+  handleBuyFish, handleFeedFishTank, handleReleaseFish, handleRenameFish,
+  handleBuyDecoration, handleRemoveDecoration, handleBuyTankBackground, handleSetTankBackground
 }) {
 
   // 시간표 제어 전용 상태 그룹
@@ -1748,6 +1753,27 @@ export default React.memo(function SideAccordionPanel({
               )}
             </div>
           </aside>
+        )}
+
+        {/* ==================== 🐠 어항 패널 (개발 중 — 개발자 모드에서만 표시) ==================== */}
+        {isFishDevMode && activeSidePanel.includes('fishtank') && (
+          <FishTankPanel
+            orderIndex={activeSidePanel.indexOf('fishtank')}
+            myTank={myFishTank}
+            myOwnerId={myTankOwnerId}
+            myTeacherName={myTeacherName}
+            allTanks={fishTanks}
+            points={fishPoints}
+            onBuyFish={handleBuyFish}
+            onFeed={handleFeedFishTank}
+            onReleaseFish={handleReleaseFish}
+            onRenameFish={handleRenameFish}
+            onBuyDeco={handleBuyDecoration}
+            onRemoveDeco={handleRemoveDecoration}
+            onBuyBackground={handleBuyTankBackground}
+            onSetBackground={handleSetTankBackground}
+            closeSidePanel={closeSidePanel}
+          />
         )}
 
         {/* ==================== 공유 메모장 패널 ==================== */}

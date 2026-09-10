@@ -44,13 +44,15 @@ import {
   Calculator,
   Layers,
   StickyNote,
-  PowerOff
+  PowerOff,
+  Fish
 } from 'lucide-react';
 
 import DashboardHeader from './components/DashboardHeader';
 import TopWidgets from './components/TopWidgets';
 import CalendarBoard from './components/CalendarBoard';
 import SideAccordionPanel from './components/SideAccordionPanel';
+import InstallAppButton from './components/InstallAppButton';
 import StudentGradesDashboard from './components/StudentGradesDashboard';
 
 const NOTION_PALETTES = {
@@ -90,6 +92,28 @@ const GOOGLE_COLOR_OPTIONS = [
   { id: '10', label: '바질', hex: '#0B8043' },
   { id: '11', label: '토마토', hex: '#D50000' },
 ];
+
+// 🐠 [신규] 어항(물고기 키우기) — 포인트 적립 규칙
+// 포인트 양을 바꾸고 싶으면 이 객체의 숫자만 고치면 됩니다.
+const FISH_POINT_RULES = {
+  attendance: 20,  // 하루 첫 접속(출석)
+  addEvent: 10,    // 일정 등록
+  memo: 5,         // 공유 메모 작성
+  notice: 5,       // 오늘의 한마디 등록
+  mealPhoto: 15,   // 급식 사진 업로드
+  feed: 2,         // 먹이 주기 (30분 쿨다운)
+};
+const FISH_DAILY_CAP = 150;   // 하루에 얻을 수 있는 최대 포인트 (반복 등록 파밍 방지)
+const FISH_FEED_COOLDOWN_MS = 30 * 60 * 1000; // 먹이 포인트 쿨다운
+const MAX_FISH_COUNT = 12;    // 어항 한 개당 최대 물고기 수
+const FISH_POINT_LABELS = {
+  attendance: '오늘의 첫 접속',
+  addEvent: '일정 등록',
+  memo: '공유 메모 작성',
+  notice: '오늘의 한마디',
+  mealPhoto: '급식 사진 등록',
+  feed: '먹이 주기',
+};
 
 export default function App() {
   const appId = 'notion-school-calendar';
@@ -295,6 +319,56 @@ export default function App() {
   const [activeSidePanel, setActiveSidePanel] = useState([]); // 🔑 [수정] 여러 패널 동시에 열 수 있도록 배열로 변경
   const MAX_OPEN_SIDE_PANELS = 2;
 
+  // 🐠 [신규] 어항 — 어항 자체는 개인 소유, 모습만 서로 구경할 수 있게 Firestore에 owner별 문서로 보관
+  const [myTankOwnerId] = useState(() => {
+    let saved = localStorage.getItem('fishtank_owner_id');
+    if (!saved) {
+      saved = crypto.randomUUID();
+      localStorage.setItem('fishtank_owner_id', saved);
+    }
+    return saved;
+  });
+  const [fishTanks, setFishTanks] = useState({});   // { ownerId: 어항데이터 } — 구경 탭에서 사용
+  const [fishPoints, setFishPoints] = useState(() => Number(localStorage.getItem('fishtank_points') || 0));
+  const [fishPointToast, setFishPointToast] = useState(null); // 포인트 획득 시 잠깐 뜨는 표시
+
+  // 🔒 [개발 중] 어항 기능 잠금
+  // 완성 전까지 다른 선생님께는 '준비 중' 안내만 보이게 하고,
+  // 아이콘을 Ctrl + Shift + 클릭 하면 이 컴퓨터에서만 실제 기능이 열립니다.
+  // 정식 공개할 때는 아래 useState 초기값을 () => true 로 바꾸기만 하면 됩니다.
+  const [isFishDevMode, setIsFishDevMode] = useState(() => localStorage.getItem('fishtank_dev_mode') === '1');
+
+  const FISH_DEV_POINTS = 50000; // 🔒 개발 중 테스트용 포인트 (정식 공개 시 이 로직 통째로 삭제)
+
+  const toggleFishDevMode = () => {
+    const next = !isFishDevMode;
+    setIsFishDevMode(next);
+    if (next) {
+      localStorage.setItem('fishtank_dev_mode', '1');
+      // 🔑 개발자 모드를 켤 때마다 테스트용 포인트를 채웁니다.
+      //    상점 테스트 중 포인트가 모자라면 Ctrl+Shift+클릭으로 껐다 켜면 다시 충전됩니다.
+      if (fishPoints < FISH_DEV_POINTS) {
+        setFishPoints(FISH_DEV_POINTS);
+        localStorage.setItem('fishtank_points', String(FISH_DEV_POINTS));
+      }
+    } else {
+      localStorage.removeItem('fishtank_dev_mode');
+      setActiveSidePanel((prev) => prev.filter((p) => p !== 'fishtank'));
+    }
+    showToast(next ? `어항 개발자 모드 ON (${FISH_DEV_POINTS.toLocaleString()}P 충전)` : "어항 개발자 모드가 꺼졌습니다.", "info");
+  };
+
+  // 어항 아이콘 클릭 처리
+  // 🔒 개발 중에는 아이콘 자체를 숨기고, 그 자리를 Ctrl + Shift + 클릭해야만 켜집니다.
+  const handleFishIconClick = (e) => {
+    if (e?.ctrlKey && e?.shiftKey) {
+      toggleFishDevMode();
+      return;
+    }
+    if (isFishDevMode) toggleSidePanel('fishtank');
+    // 개발자 모드가 아니면 아무 반응도 하지 않습니다 (다른 선생님께는 보이지 않는 영역)
+  };
+
   // 🌟 [추가 상태] 실시간으로 공유될 전역 교사/학급 시간표 통합 매트릭스 원격 상태 선언
   const [customTimetables, setCustomTimetables] = useState({ classes: {}, teachers: {} });
 
@@ -480,6 +554,164 @@ export default function App() {
     setScheduledShutdownAt(null);
     localStorage.removeItem('scheduled_shutdown_at');
     showToast("예약 종료가 취소되었습니다.", "info");
+  };
+
+  /* 🐠 ==================== [신규] 어항(물고기 키우기) ==================== */
+
+  // 오늘 날짜 키 (UTC가 아니라 이 컴퓨터의 로컬 날짜 기준)
+  const getLocalDayKey = () => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  };
+
+  // 포인트 적립 — 하루 상한(FISH_DAILY_CAP)을 넘으면 더 이상 쌓이지 않습니다.
+  const awardFishPoints = useCallback((reason) => {
+    const amount = FISH_POINT_RULES[reason];
+    if (!amount) return 0;
+
+    const todayKey = getLocalDayKey();
+    let daily = { date: todayKey, amount: 0 };
+    try {
+      const raw = JSON.parse(localStorage.getItem('fishtank_daily_earned') || 'null');
+      if (raw && raw.date === todayKey) daily = raw;
+    } catch (e) { /* 무시 */ }
+
+    if (daily.amount >= FISH_DAILY_CAP) return 0;
+    const gain = Math.min(amount, FISH_DAILY_CAP - daily.amount);
+
+    localStorage.setItem('fishtank_daily_earned', JSON.stringify({ date: todayKey, amount: daily.amount + gain }));
+    setFishPoints((prev) => {
+      const next = prev + gain;
+      localStorage.setItem('fishtank_points', String(next));
+      return next;
+    });
+    setFishPointToast({ amount: gain, reason, key: Date.now() });
+    setTimeout(() => setFishPointToast(null), 2000);
+    return gain;
+  }, []);
+
+  // 포인트 차감 — 부족하면 false
+  const spendFishPoints = (cost) => {
+    if (fishPoints < cost) return false;
+    const next = fishPoints - cost;
+    setFishPoints(next);
+    localStorage.setItem('fishtank_points', String(next));
+    return true;
+  };
+
+  // 하루 첫 접속 출석 포인트
+  useEffect(() => {
+    const todayKey = getLocalDayKey();
+    if (localStorage.getItem('fishtank_last_attendance') === todayKey) return;
+    localStorage.setItem('fishtank_last_attendance', todayKey);
+    awardFishPoints('attendance');
+  }, [awardFishPoints]);
+
+  // 모든 선생님의 어항 실시간 동기화 (구경 탭용)
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    const tanksRef = collection(db, 'artifacts', appId, 'public', 'data', 'fishtanks');
+    return onSnapshot(tanksRef, (snapshot) => {
+      const map = {};
+      snapshot.forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
+      setFishTanks(map);
+    });
+  }, [syncStatus]);
+
+  const myFishTank = useMemo(
+    () => fishTanks[myTankOwnerId] || { id: myTankOwnerId, fish: {}, decorations: {}, bgId: 'default', ownedBgs: ['default'] },
+    [fishTanks, myTankOwnerId]
+  );
+
+  const getMyTankDocRef = () => doc(db, 'artifacts', appId, 'public', 'data', 'fishtanks', myTankOwnerId);
+
+  // 내 이름이 바뀌면 어항 주인 이름도 따라 갱신 (구경 탭에 표시되는 이름)
+  useEffect(() => {
+    if (syncStatus !== 'connected' || !db) return;
+    if (!myTeacherName) return;
+    const existing = fishTanks[myTankOwnerId];
+    if (!existing || existing.ownerName === myTeacherName) return;
+    setDoc(getMyTankDocRef(), { ownerName: myTeacherName }, { merge: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myTeacherName, fishTanks, syncStatus]);
+
+  const handleBuyFish = async (speciesId, name, colorId, price) => {
+    if (syncStatus !== 'connected' || !db) return { success: false, error: '서버에 연결되어 있지 않습니다.' };
+    if (Object.keys(myFishTank.fish || {}).length >= MAX_FISH_COUNT) {
+      return { success: false, error: `어항에는 최대 ${MAX_FISH_COUNT}마리까지 넣을 수 있습니다.` };
+    }
+    if (fishPoints < price) return { success: false, error: '포인트가 부족합니다.' };
+
+    const fishId = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    await setDoc(getMyTankDocRef(), {
+      ownerName: myTeacherName || '',
+      updatedAt: nowIso,
+      lastFedAt: myFishTank.lastFedAt || nowIso,
+      bgId: myFishTank.bgId || 'default',
+      ownedBgs: myFishTank.ownedBgs || ['default'],
+      fish: { [fishId]: { id: fishId, speciesId, name, colorId, createdAt: nowIso } },
+    }, { merge: true });
+
+    spendFishPoints(price);
+    return { success: true };
+  };
+
+  const handleReleaseFish = async (fishId) => {
+    if (syncStatus !== 'connected' || !db) return;
+    await setDoc(getMyTankDocRef(), { fish: { [fishId]: deleteField() } }, { merge: true });
+  };
+
+  const handleRenameFish = async (fishId, name) => {
+    if (syncStatus !== 'connected' || !db) return;
+    await setDoc(getMyTankDocRef(), { fish: { [fishId]: { name } } }, { merge: true });
+  };
+
+  // 먹이 주기 — 포인트는 30분에 한 번만 적립되지만, 먹이는 언제든 줄 수 있습니다.
+  const handleFeedFishTank = async () => {
+    if (syncStatus !== 'connected' || !db) return { earned: 0 };
+    const lastMs = myFishTank.lastFedAt ? new Date(myFishTank.lastFedAt).getTime() : 0;
+    const canEarn = Date.now() - lastMs > FISH_FEED_COOLDOWN_MS;
+    await setDoc(getMyTankDocRef(), {
+      lastFedAt: new Date().toISOString(),
+      ownerName: myTeacherName || '',
+    }, { merge: true });
+    return { earned: canEarn ? awardFishPoints('feed') : 0 };
+  };
+
+  const handleBuyDecoration = async (itemId, slot, price) => {
+    if (syncStatus !== 'connected' || !db) return { success: false, error: '서버에 연결되어 있지 않습니다.' };
+    if (fishPoints < price) return { success: false, error: '포인트가 부족합니다.' };
+    const decoId = crypto.randomUUID();
+    await setDoc(getMyTankDocRef(), {
+      ownerName: myTeacherName || '',
+      decorations: { [decoId]: { id: decoId, itemId, slot } },
+    }, { merge: true });
+    spendFishPoints(price);
+    return { success: true };
+  };
+
+  const handleRemoveDecoration = async (decoId) => {
+    if (syncStatus !== 'connected' || !db) return;
+    await setDoc(getMyTankDocRef(), { decorations: { [decoId]: deleteField() } }, { merge: true });
+  };
+
+  const handleBuyTankBackground = async (bgId, price) => {
+    if (syncStatus !== 'connected' || !db) return { success: false, error: '서버에 연결되어 있지 않습니다.' };
+    if (fishPoints < price) return { success: false, error: '포인트가 부족합니다.' };
+    const owned = myFishTank.ownedBgs || ['default'];
+    await setDoc(getMyTankDocRef(), {
+      ownerName: myTeacherName || '',
+      ownedBgs: [...new Set([...owned, bgId])],
+      bgId,
+    }, { merge: true });
+    spendFishPoints(price);
+    return { success: true };
+  };
+
+  const handleSetTankBackground = async (bgId) => {
+    if (syncStatus !== 'connected' || !db) return;
+    await setDoc(getMyTankDocRef(), { bgId }, { merge: true });
   };
 
   const handleToggleAutoLaunch = async () => {
@@ -1140,6 +1372,7 @@ export default function App() {
     if (isShared) {
       if (syncStatus === 'connected' && db) {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', memoId), { title: trimmedTitle, content: content.trim(), color }, { merge: true });
+        awardFishPoints('memo'); // 🐠 어항 포인트 적립 (공유 메모만)
       }
     } else {
       savePersonalMemos(personalMemos.map((m) => m.id === memoId ? { ...m, title: trimmedTitle, content: content.trim(), color } : m));
@@ -1193,6 +1426,7 @@ export default function App() {
         });
       }
       showToast("급식 사진이 등록되었습니다.", "success");
+      awardFishPoints('mealPhoto'); // 🐠 어항 포인트 적립
     } catch (err) {
       console.error("급식 사진 업로드 실패:", err);
       showToast("사진 업로드에 실패했습니다.", "error");
@@ -1442,7 +1676,8 @@ export default function App() {
       await setDoc(doc(getEventsCollectionRef(targetCalId)), payload);
       showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
     } else { saveLocalEvent({ ...payload, id: crypto.randomUUID() }); }
-    
+
+    awardFishPoints('addEvent'); // 🐠 어항 포인트 적립
     handleCloseAddModal();
   };
 
@@ -1520,6 +1755,7 @@ export default function App() {
     if (syncStatus === 'connected' && db) {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notices', 'board'), updated, { merge: true });
       showToast("오늘의 한마디가 연동 저장되었습니다.", "success");
+      awardFishPoints('notice'); // 🐠 어항 포인트 적립
     }
   };
 
@@ -1606,6 +1842,7 @@ export default function App() {
     delete payload.id;
     if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
     setParsedProposals(prev => prev.filter(p => p.id !== id)); showToast("캘린더에 연동 등록했습니다.", "success");
+    awardFishPoints('addEvent'); // 🐠 어항 포인트 적립
   };
 
   // 카테고리 추가/수정/삭제/순서변경
@@ -1738,6 +1975,20 @@ export default function App() {
 
   return (
     <div className="h-screen overflow-hidden bg-[#F7F7F5] text-[#37352F] font-sans antialiased flex flex-col select-none">
+      {/* 🐠 [신규] 어항 포인트 획득 표시 (개발 중이므로 개발자 모드에서만 노출) */}
+      {isFishDevMode && fishPointToast && (
+        <div
+          key={fishPointToast.key}
+          className="ft-point-pop fixed top-16 right-20 z-60 flex items-center gap-2 px-3 py-2 bg-white border border-amber-200 rounded-xl shadow-lg pointer-events-none"
+        >
+          <span className="text-base">🐠</span>
+          <div className="leading-tight">
+            <p className="text-xs font-black text-amber-600">+{fishPointToast.amount}P</p>
+            <p className="text-[10px] font-semibold text-gray-400">{FISH_POINT_LABELS[fishPointToast.reason] || ''}</p>
+          </div>
+        </div>
+      )}
+
       <DashboardHeader 
         syncStatus={syncStatus} isAlwaysOnTop={isAlwaysOnTop} isMoveLocked={isMoveLocked} opacityValue={opacityValue}
         isOpacityDropdownOpen={isOpacityDropdownOpen} setIsOpacityDropdownOpen={setIsOpacityDropdownOpen}
@@ -1760,7 +2011,7 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-row min-w-0 min-h-0 w-full relative overflow-hidden gap-1.5">
-        <div className="flex-1 flex flex-col gap-1.5 p-3 md:p-3.5 min-w-0 min-h-0 overflow-y-auto pb-24 md:pb-3.5">
+        <div className="flex-1 flex flex-col gap-1.5 px-1 py-2 md:p-3.5 min-w-0 min-h-0 overflow-y-auto pb-24 md:pb-3.5">
           {/* 🔑 [수정] 오늘의 한마디/D-Day/시계는 모바일에서는 화면을 너무 많이 차지해 숨김 */}
           <div className="hidden md:block">
             <TopWidgets 
@@ -1831,6 +2082,12 @@ export default function App() {
               onDeleteGlobalTimetable={handleDeleteGlobalTimetable}
               myClassNum={myClassNum} myTeacherName={myTeacherName}
               scheduledShutdownAt={scheduledShutdownAt} handleScheduleShutdown={handleScheduleShutdown} handleCancelShutdown={handleCancelShutdown}
+              myFishTank={myFishTank} myTankOwnerId={myTankOwnerId} fishTanks={fishTanks} fishPoints={fishPoints}
+              isFishDevMode={isFishDevMode}
+              handleBuyFish={handleBuyFish} handleFeedFishTank={handleFeedFishTank}
+              handleReleaseFish={handleReleaseFish} handleRenameFish={handleRenameFish}
+              handleBuyDecoration={handleBuyDecoration} handleRemoveDecoration={handleRemoveDecoration}
+              handleBuyTankBackground={handleBuyTankBackground} handleSetTankBackground={handleSetTankBackground}
             />
             </div>
           </div>
@@ -1847,11 +2104,32 @@ export default function App() {
           <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('tools') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('gradeConv')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('gradeConv') ? 'bg-rose-50 border-rose-200 text-rose-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="등급 환산 계산기"><Calculator className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('memo')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('memo') ? 'bg-yellow-50 border-yellow-200 text-yellow-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 메모장"><StickyNote className="w-5 h-5" /></button>
+          {isFishDevMode ? (
+            <button
+              type="button"
+              onClick={handleFishIconClick}
+              className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('fishtank') ? 'bg-sky-50 border-sky-200 text-sky-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}
+              title="나의 어항"
+            >
+              <Fish className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-400 rounded-full border border-white"></span>
+            </button>
+          ) : (
+            // 🔒 [개발 중] 보이지 않는 진입 영역 — Ctrl + Shift + 클릭으로만 열립니다.
+            <div
+              onClick={handleFishIconClick}
+              className="w-10 h-10 shrink-0"
+              aria-hidden="true"
+            />
+          )}
           <button type="button" onClick={() => toggleSidePanel('shutdown')} className={`mt-auto p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('shutdown') ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="예약 종료">
             <PowerOff className="w-5 h-5" />
             {scheduledShutdownAt && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>}
           </button>
         </div>
+
+        {/* 🔑 [신규] 홈 화면 앱 추가 유도 버튼 — 모바일 웹에서만, 설치 후 자동 숨김 */}
+        <InstallAppButton />
 
         {/* 🔑 [신규] 모바일 전용 하단 탭 막대 — 데스크톱 사이드바와 같은 기능, 가로 아이콘 나열 */}
         <div
@@ -1866,6 +2144,19 @@ export default function App() {
           <button type="button" onClick={() => { setMobileView('salary'); setActiveSidePanel(['salary']); }} className={`p-2 rounded-lg ${mobileView === 'salary' ? 'text-amber-700' : 'text-gray-400'}`}><Wallet className="w-5 h-5" /></button>
           <button type="button" onClick={() => { setMobileView('gradeConv'); setActiveSidePanel(['gradeConv']); }} className={`p-2 rounded-lg ${mobileView === 'gradeConv' ? 'text-rose-700' : 'text-gray-400'}`}><Calculator className="w-5 h-5" /></button>
           <button type="button" onClick={() => { setMobileView('memo'); setActiveSidePanel(['memo']); }} className={`p-2 rounded-lg ${mobileView === 'memo' ? 'text-yellow-700' : 'text-gray-400'}`}><StickyNote className="w-5 h-5" /></button>
+          {isFishDevMode && (
+            <button
+              type="button"
+              onClick={(e) => {
+                if (e.ctrlKey && e.shiftKey) return toggleFishDevMode();
+                setMobileView('fishtank');
+                setActiveSidePanel(['fishtank']);
+              }}
+              className={`p-2 rounded-lg ${mobileView === 'fishtank' ? 'text-sky-700' : 'text-gray-400'}`}
+            >
+              <Fish className="w-5 h-5" />
+            </button>
+          )}
         </div>
       </div>
 

@@ -1,13 +1,26 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko" translate="no" class="notranslate">
   <head>
     <meta charset="UTF-8" />
+    <!-- 🔑 [신규] 브라우저 자동 번역 차단 (한국어 UI가 깨지는 것 방지) -->
+    <meta name="google" content="notranslate" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>office-calendar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <title>솔내고 2학년 공유 캘린더</title>
+
+    <!-- 🔑 [신규] PWA(홈 화면 앱) 설정 -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#F7F7F5" />
+
+    <!-- 🔑 iOS 전용: 홈 화면에서 주소창 없이 전체화면으로 실행 -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="공유 캘린더" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" translate="no" class="notranslate"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
