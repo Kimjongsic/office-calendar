@@ -1,8 +1,9 @@
 // src/App.jsx
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { db, initAnonymousAuth } from './firebase';
+import { db, functions, initAnonymousAuth } from './firebase';
 // 드래그 앤 드롭 순서 변경의 원자적 일괄 처리를 위해 writeBatch 라이브러리 추가 바인딩
 import { collection, doc, setDoc, deleteDoc, deleteField, onSnapshot, writeBatch } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -44,8 +45,7 @@ import {
   Calculator,
   Layers,
   StickyNote,
-  PowerOff,
-  Fish
+  PowerOff
 } from 'lucide-react';
 
 import DashboardHeader from './components/DashboardHeader';
@@ -93,27 +93,6 @@ const GOOGLE_COLOR_OPTIONS = [
   { id: '11', label: '토마토', hex: '#D50000' },
 ];
 
-// 🐠 [신규] 어항(물고기 키우기) — 포인트 적립 규칙
-// 포인트 양을 바꾸고 싶으면 이 객체의 숫자만 고치면 됩니다.
-const FISH_POINT_RULES = {
-  attendance: 20,  // 하루 첫 접속(출석)
-  addEvent: 10,    // 일정 등록
-  memo: 5,         // 공유 메모 작성
-  notice: 5,       // 오늘의 한마디 등록
-  mealPhoto: 15,   // 급식 사진 업로드
-  feed: 2,         // 먹이 주기 (30분 쿨다운)
-};
-const FISH_DAILY_CAP = 150;   // 하루에 얻을 수 있는 최대 포인트 (반복 등록 파밍 방지)
-const FISH_FEED_COOLDOWN_MS = 30 * 60 * 1000; // 먹이 포인트 쿨다운
-const MAX_FISH_COUNT = 12;    // 어항 한 개당 최대 물고기 수
-const FISH_POINT_LABELS = {
-  attendance: '오늘의 첫 접속',
-  addEvent: '일정 등록',
-  memo: '공유 메모 작성',
-  notice: '오늘의 한마디',
-  mealPhoto: '급식 사진 등록',
-  feed: '먹이 주기',
-};
 
 export default function App() {
   const appId = 'notion-school-calendar';
@@ -267,8 +246,6 @@ export default function App() {
 
   const [selectedEvent, setSelectedEvent] = useState(null);
 
-  const [geminiApiKey, setGeminiApiKey] = useState('');
-  const [tempApiKey, setTempApiKey] = useState('');
 
   const [newEvent, setNewEvent] = useState({
     title: '', category: '교무회의', manager: '',
@@ -319,55 +296,6 @@ export default function App() {
   const [activeSidePanel, setActiveSidePanel] = useState([]); // 🔑 [수정] 여러 패널 동시에 열 수 있도록 배열로 변경
   const MAX_OPEN_SIDE_PANELS = 2;
 
-  // 🐠 [신규] 어항 — 어항 자체는 개인 소유, 모습만 서로 구경할 수 있게 Firestore에 owner별 문서로 보관
-  const [myTankOwnerId] = useState(() => {
-    let saved = localStorage.getItem('fishtank_owner_id');
-    if (!saved) {
-      saved = crypto.randomUUID();
-      localStorage.setItem('fishtank_owner_id', saved);
-    }
-    return saved;
-  });
-  const [fishTanks, setFishTanks] = useState({});   // { ownerId: 어항데이터 } — 구경 탭에서 사용
-  const [fishPoints, setFishPoints] = useState(() => Number(localStorage.getItem('fishtank_points') || 0));
-  const [fishPointToast, setFishPointToast] = useState(null); // 포인트 획득 시 잠깐 뜨는 표시
-
-  // 🔒 [개발 중] 어항 기능 잠금
-  // 완성 전까지 다른 선생님께는 '준비 중' 안내만 보이게 하고,
-  // 아이콘을 Ctrl + Shift + 클릭 하면 이 컴퓨터에서만 실제 기능이 열립니다.
-  // 정식 공개할 때는 아래 useState 초기값을 () => true 로 바꾸기만 하면 됩니다.
-  const [isFishDevMode, setIsFishDevMode] = useState(() => localStorage.getItem('fishtank_dev_mode') === '1');
-
-  const FISH_DEV_POINTS = 50000; // 🔒 개발 중 테스트용 포인트 (정식 공개 시 이 로직 통째로 삭제)
-
-  const toggleFishDevMode = () => {
-    const next = !isFishDevMode;
-    setIsFishDevMode(next);
-    if (next) {
-      localStorage.setItem('fishtank_dev_mode', '1');
-      // 🔑 개발자 모드를 켤 때마다 테스트용 포인트를 채웁니다.
-      //    상점 테스트 중 포인트가 모자라면 Ctrl+Shift+클릭으로 껐다 켜면 다시 충전됩니다.
-      if (fishPoints < FISH_DEV_POINTS) {
-        setFishPoints(FISH_DEV_POINTS);
-        localStorage.setItem('fishtank_points', String(FISH_DEV_POINTS));
-      }
-    } else {
-      localStorage.removeItem('fishtank_dev_mode');
-      setActiveSidePanel((prev) => prev.filter((p) => p !== 'fishtank'));
-    }
-    showToast(next ? `어항 개발자 모드 ON (${FISH_DEV_POINTS.toLocaleString()}P 충전)` : "어항 개발자 모드가 꺼졌습니다.", "info");
-  };
-
-  // 어항 아이콘 클릭 처리
-  // 🔒 개발 중에는 아이콘 자체를 숨기고, 그 자리를 Ctrl + Shift + 클릭해야만 켜집니다.
-  const handleFishIconClick = (e) => {
-    if (e?.ctrlKey && e?.shiftKey) {
-      toggleFishDevMode();
-      return;
-    }
-    if (isFishDevMode) toggleSidePanel('fishtank');
-    // 개발자 모드가 아니면 아무 반응도 하지 않습니다 (다른 선생님께는 보이지 않는 영역)
-  };
 
   // 🌟 [추가 상태] 실시간으로 공유될 전역 교사/학급 시간표 통합 매트릭스 원격 상태 선언
   const [customTimetables, setCustomTimetables] = useState({ classes: {}, teachers: {} });
@@ -418,7 +346,6 @@ export default function App() {
   const [sheetSyncIdInput, setSheetSyncIdInput] = useState('');
   const [isSyncingSheet, setIsSyncingSheet] = useState(false);
   const [isEditingSheetSyncId, setIsEditingSheetSyncId] = useState(false); // 🔑 [신규] ID 수정 모드 여부
-  const [isGeminiSectionOpen, setIsGeminiSectionOpen] = useState(false); // 🔑 Gemini API 키 설정, 평소엔 접혀있음
   const handleCloseGradesDashboard = useCallback(() => setIsGradesDashboardOpen(false), []); // 🔑 매초 재생성 방지
 
   const year = currentDate.getFullYear();
@@ -556,163 +483,6 @@ export default function App() {
     showToast("예약 종료가 취소되었습니다.", "info");
   };
 
-  /* 🐠 ==================== [신규] 어항(물고기 키우기) ==================== */
-
-  // 오늘 날짜 키 (UTC가 아니라 이 컴퓨터의 로컬 날짜 기준)
-  const getLocalDayKey = () => {
-    const n = new Date();
-    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-  };
-
-  // 포인트 적립 — 하루 상한(FISH_DAILY_CAP)을 넘으면 더 이상 쌓이지 않습니다.
-  const awardFishPoints = useCallback((reason) => {
-    const amount = FISH_POINT_RULES[reason];
-    if (!amount) return 0;
-
-    const todayKey = getLocalDayKey();
-    let daily = { date: todayKey, amount: 0 };
-    try {
-      const raw = JSON.parse(localStorage.getItem('fishtank_daily_earned') || 'null');
-      if (raw && raw.date === todayKey) daily = raw;
-    } catch (e) { /* 무시 */ }
-
-    if (daily.amount >= FISH_DAILY_CAP) return 0;
-    const gain = Math.min(amount, FISH_DAILY_CAP - daily.amount);
-
-    localStorage.setItem('fishtank_daily_earned', JSON.stringify({ date: todayKey, amount: daily.amount + gain }));
-    setFishPoints((prev) => {
-      const next = prev + gain;
-      localStorage.setItem('fishtank_points', String(next));
-      return next;
-    });
-    setFishPointToast({ amount: gain, reason, key: Date.now() });
-    setTimeout(() => setFishPointToast(null), 2000);
-    return gain;
-  }, []);
-
-  // 포인트 차감 — 부족하면 false
-  const spendFishPoints = (cost) => {
-    if (fishPoints < cost) return false;
-    const next = fishPoints - cost;
-    setFishPoints(next);
-    localStorage.setItem('fishtank_points', String(next));
-    return true;
-  };
-
-  // 하루 첫 접속 출석 포인트
-  useEffect(() => {
-    const todayKey = getLocalDayKey();
-    if (localStorage.getItem('fishtank_last_attendance') === todayKey) return;
-    localStorage.setItem('fishtank_last_attendance', todayKey);
-    awardFishPoints('attendance');
-  }, [awardFishPoints]);
-
-  // 모든 선생님의 어항 실시간 동기화 (구경 탭용)
-  useEffect(() => {
-    if (syncStatus !== 'connected' || !db) return;
-    const tanksRef = collection(db, 'artifacts', appId, 'public', 'data', 'fishtanks');
-    return onSnapshot(tanksRef, (snapshot) => {
-      const map = {};
-      snapshot.forEach((d) => { map[d.id] = { id: d.id, ...d.data() }; });
-      setFishTanks(map);
-    });
-  }, [syncStatus]);
-
-  const myFishTank = useMemo(
-    () => fishTanks[myTankOwnerId] || { id: myTankOwnerId, fish: {}, decorations: {}, bgId: 'default', ownedBgs: ['default'] },
-    [fishTanks, myTankOwnerId]
-  );
-
-  const getMyTankDocRef = () => doc(db, 'artifacts', appId, 'public', 'data', 'fishtanks', myTankOwnerId);
-
-  // 내 이름이 바뀌면 어항 주인 이름도 따라 갱신 (구경 탭에 표시되는 이름)
-  useEffect(() => {
-    if (syncStatus !== 'connected' || !db) return;
-    if (!myTeacherName) return;
-    const existing = fishTanks[myTankOwnerId];
-    if (!existing || existing.ownerName === myTeacherName) return;
-    setDoc(getMyTankDocRef(), { ownerName: myTeacherName }, { merge: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myTeacherName, fishTanks, syncStatus]);
-
-  const handleBuyFish = async (speciesId, name, colorId, price) => {
-    if (syncStatus !== 'connected' || !db) return { success: false, error: '서버에 연결되어 있지 않습니다.' };
-    if (Object.keys(myFishTank.fish || {}).length >= MAX_FISH_COUNT) {
-      return { success: false, error: `어항에는 최대 ${MAX_FISH_COUNT}마리까지 넣을 수 있습니다.` };
-    }
-    if (fishPoints < price) return { success: false, error: '포인트가 부족합니다.' };
-
-    const fishId = crypto.randomUUID();
-    const nowIso = new Date().toISOString();
-    await setDoc(getMyTankDocRef(), {
-      ownerName: myTeacherName || '',
-      updatedAt: nowIso,
-      lastFedAt: myFishTank.lastFedAt || nowIso,
-      bgId: myFishTank.bgId || 'default',
-      ownedBgs: myFishTank.ownedBgs || ['default'],
-      fish: { [fishId]: { id: fishId, speciesId, name, colorId, createdAt: nowIso } },
-    }, { merge: true });
-
-    spendFishPoints(price);
-    return { success: true };
-  };
-
-  const handleReleaseFish = async (fishId) => {
-    if (syncStatus !== 'connected' || !db) return;
-    await setDoc(getMyTankDocRef(), { fish: { [fishId]: deleteField() } }, { merge: true });
-  };
-
-  const handleRenameFish = async (fishId, name) => {
-    if (syncStatus !== 'connected' || !db) return;
-    await setDoc(getMyTankDocRef(), { fish: { [fishId]: { name } } }, { merge: true });
-  };
-
-  // 먹이 주기 — 포인트는 30분에 한 번만 적립되지만, 먹이는 언제든 줄 수 있습니다.
-  const handleFeedFishTank = async () => {
-    if (syncStatus !== 'connected' || !db) return { earned: 0 };
-    const lastMs = myFishTank.lastFedAt ? new Date(myFishTank.lastFedAt).getTime() : 0;
-    const canEarn = Date.now() - lastMs > FISH_FEED_COOLDOWN_MS;
-    await setDoc(getMyTankDocRef(), {
-      lastFedAt: new Date().toISOString(),
-      ownerName: myTeacherName || '',
-    }, { merge: true });
-    return { earned: canEarn ? awardFishPoints('feed') : 0 };
-  };
-
-  const handleBuyDecoration = async (itemId, slot, price) => {
-    if (syncStatus !== 'connected' || !db) return { success: false, error: '서버에 연결되어 있지 않습니다.' };
-    if (fishPoints < price) return { success: false, error: '포인트가 부족합니다.' };
-    const decoId = crypto.randomUUID();
-    await setDoc(getMyTankDocRef(), {
-      ownerName: myTeacherName || '',
-      decorations: { [decoId]: { id: decoId, itemId, slot } },
-    }, { merge: true });
-    spendFishPoints(price);
-    return { success: true };
-  };
-
-  const handleRemoveDecoration = async (decoId) => {
-    if (syncStatus !== 'connected' || !db) return;
-    await setDoc(getMyTankDocRef(), { decorations: { [decoId]: deleteField() } }, { merge: true });
-  };
-
-  const handleBuyTankBackground = async (bgId, price) => {
-    if (syncStatus !== 'connected' || !db) return { success: false, error: '서버에 연결되어 있지 않습니다.' };
-    if (fishPoints < price) return { success: false, error: '포인트가 부족합니다.' };
-    const owned = myFishTank.ownedBgs || ['default'];
-    await setDoc(getMyTankDocRef(), {
-      ownerName: myTeacherName || '',
-      ownedBgs: [...new Set([...owned, bgId])],
-      bgId,
-    }, { merge: true });
-    spendFishPoints(price);
-    return { success: true };
-  };
-
-  const handleSetTankBackground = async (bgId) => {
-    if (syncStatus !== 'connected' || !db) return;
-    await setDoc(getMyTankDocRef(), { bgId }, { merge: true });
-  };
 
   const handleToggleAutoLaunch = async () => {
     if (!window.electronAPI?.setAutoLaunch) return;
@@ -992,12 +762,6 @@ export default function App() {
     });
   }, [syncStatus]);
 
-  useEffect(() => {
-    if (syncStatus !== 'connected' || !db) return;
-    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'gemini'), (snapshot) => {
-      if (snapshot.exists()) { setGeminiApiKey(snapshot.data().apiKey || ''); setTempApiKey(snapshot.data().apiKey || ''); }
-    });
-  }, [syncStatus]);
 
   // 🌟 [기능 추가] 전교 교사 실시간 공유 시간표 도큐먼트 구독 처리 이벤트 수립
   useEffect(() => {
@@ -1372,7 +1136,6 @@ export default function App() {
     if (isShared) {
       if (syncStatus === 'connected' && db) {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sharedMemos', memoId), { title: trimmedTitle, content: content.trim(), color }, { merge: true });
-        awardFishPoints('memo'); // 🐠 어항 포인트 적립 (공유 메모만)
       }
     } else {
       savePersonalMemos(personalMemos.map((m) => m.id === memoId ? { ...m, title: trimmedTitle, content: content.trim(), color } : m));
@@ -1426,7 +1189,6 @@ export default function App() {
         });
       }
       showToast("급식 사진이 등록되었습니다.", "success");
-      awardFishPoints('mealPhoto'); // 🐠 어항 포인트 적립
     } catch (err) {
       console.error("급식 사진 업로드 실패:", err);
       showToast("사진 업로드에 실패했습니다.", "error");
@@ -1677,7 +1439,6 @@ export default function App() {
       showToast("일정이 공유 캘린더에 연동되었습니다.", "success");
     } else { saveLocalEvent({ ...payload, id: crypto.randomUUID() }); }
 
-    awardFishPoints('addEvent'); // 🐠 어항 포인트 적립
     handleCloseAddModal();
   };
 
@@ -1755,7 +1516,6 @@ export default function App() {
     if (syncStatus === 'connected' && db) {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'notices', 'board'), updated, { merge: true });
       showToast("오늘의 한마디가 연동 저장되었습니다.", "success");
-      awardFishPoints('notice'); // 🐠 어항 포인트 적립
     }
   };
 
@@ -1789,41 +1549,16 @@ export default function App() {
   const handleDeleteBookmark = (id) => { setBookmarks(bookmarks.filter(b => b.id !== id)); };
   const handleOpenBookmarkUrl = (e, url) => { e.preventDefault(); window.electronAPI ? window.electronAPI.openExternal(url) : window.open(url, '_blank'); };
   
-  const handleSaveApiKeyToLocal = () => { localStorage.setItem('user_gemini_api_key', tempApiKey.trim()); setGeminiApiKey(tempApiKey.trim()); showToast("키가 등록되었습니다.", "success"); };
-  const handleShareApiKeyToFirestore = async () => { if (syncStatus === 'connected') await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'gemini'), { apiKey: tempApiKey.trim() }); showToast("전체 공유 완료", "success"); };
 
   // Gemini AI 기반 메신저 일정 분석기
   const handleAnalyzeMessengerText = async () => {
     if (!messengerInput.trim()) return showToast("분석할 안내 내용을 기입해 주세요.", "error");
-    if (!geminiApiKey.trim()) return showToast("설정에서 Gemini API Key를 등록해 주세요!", "error");
 
     setIsAnalyzing(true);
     try {
-      const promptPieces = [
-        "너는 학교 교무실 업무를 지원하는 완벽한 AI 비서이다.",
-        "제공되는 텍스트 하나에는 서로 다른 공지가 1건만 있을 수도 있고, 여러 건이 섞여 있을 수도 있다. 올해는 2026년이다.",
-        "1단계: 먼저 텍스트가 몇 개의 서로 다른 '공지 단위'로 구성되어 있는지 파악하라. 번호(1. 2. 3.), 구분선, 빈 줄, 서로 다른 제목 블록으로 나뉘어 있다면 각각 별개의 공지로 간주한다.",
-        "2단계: 각 공지 단위 안에서, 성격이 서로 다른 날짜(또는 날짜 범위)가 몇 개나 언급되는지 파악하라. '이 날짜가 가리키는 행동이나 사건이 서로 다른가?'를 기준으로 판단한다. 예를 들어 '신청/접수/제출의 마감일'과 '실제 행사/교육/활동이 열리는 날'은 서로 다른 사건이므로 별개의 날짜로 센다. 같은 공지 안에 심사일, 발표일처럼 제3, 제4의 날짜가 더 있다면 그것도 각각 별개의 날짜로 센다.",
-        "3단계: 한 공지 안에 서로 다른 날짜가 N개 있다면, 그 공지에서 N개의 일정 항목을 만든다. 각 항목의 title은 원래 제목에 그 날짜가 가리키는 행동을 짧게 괄호로 덧붙인다(예: '(신청마감)', '(접수기간)', '(심사)', '(발표)' 등 텍스트의 표현을 그대로 살려서 짓는다). 날짜가 실제 행사/활동 자체를 가리키는 항목이라면 원래 제목을 그대로 쓰고 괄호를 붙이지 않는다.",
-        "4단계: 장소, 담당자, 신청방법, 신청인원 등 날짜와 무관하게 공통되는 정보는 그 공지에서 만들어진 모든 일정 항목에 동일하게 채운다.",
-        "한 공지 안에 날짜가 1개뿐이면 항목도 1개만 만든다. 날짜 종류를 억지로 쪼개지 말고, 실제로 서로 다른 사건을 가리킬 때만 나눈다.",
-        "모든 공지에서 만들어진 일정 항목 전체를 하나의 JSON 배열로 응답하라.",
-        "오직 아래 명세(배열 형태)만 텍스트로 응답하고, 마크다운 기호(```json)나 설명은 일절 배제하라:",
-        "[ { \"title\": \"일정명\", \"startDate\": \"YYYY-MM-DD\", \"endDate\": \"YYYY-MM-DD\", \"startTime\": \"HH:MM\", \"endTime\": \"HH:MM\", \"manager\": \"\", \"location\": \"\", \"applyMethod\": \"\", \"applyCount\": \"\", \"memo\": \"\" } ]"
-      ];
-
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: promptPieces.join("\n") }, { text: `[원문]\n${messengerInput}` }] }] })
-        }
-      );
-
-      if (!response.ok) throw new Error("API 호출 실패");
-      const resData = await response.json();
-      const cleanJsonStr = resData.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const analyzeMessengerText = httpsCallable(functions, 'analyzeMessengerText');
+      const { data } = await analyzeMessengerText({ text: messengerInput });
+      const cleanJsonStr = data.result.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsedArray = JSON.parse(cleanJsonStr);
 
       if (Array.isArray(parsedArray)) {
@@ -1842,7 +1577,6 @@ export default function App() {
     delete payload.id;
     if (syncStatus === 'connected' && db) await setDoc(doc(getEventsCollectionRef(currentCalendarId)), payload);
     setParsedProposals(prev => prev.filter(p => p.id !== id)); showToast("캘린더에 연동 등록했습니다.", "success");
-    awardFishPoints('addEvent'); // 🐠 어항 포인트 적립
   };
 
   // 카테고리 추가/수정/삭제/순서변경
@@ -1975,20 +1709,6 @@ export default function App() {
 
   return (
     <div className="h-screen overflow-hidden bg-[#F7F7F5] text-[#37352F] font-sans antialiased flex flex-col select-none">
-      {/* 🐠 [신규] 어항 포인트 획득 표시 (개발 중이므로 개발자 모드에서만 노출) */}
-      {isFishDevMode && fishPointToast && (
-        <div
-          key={fishPointToast.key}
-          className="ft-point-pop fixed top-16 right-20 z-60 flex items-center gap-2 px-3 py-2 bg-white border border-amber-200 rounded-xl shadow-lg pointer-events-none"
-        >
-          <span className="text-base">🐠</span>
-          <div className="leading-tight">
-            <p className="text-xs font-black text-amber-600">+{fishPointToast.amount}P</p>
-            <p className="text-[10px] font-semibold text-gray-400">{FISH_POINT_LABELS[fishPointToast.reason] || ''}</p>
-          </div>
-        </div>
-      )}
-
       <DashboardHeader 
         syncStatus={syncStatus} isAlwaysOnTop={isAlwaysOnTop} isMoveLocked={isMoveLocked} opacityValue={opacityValue}
         isOpacityDropdownOpen={isOpacityDropdownOpen} setIsOpacityDropdownOpen={setIsOpacityDropdownOpen}
@@ -2082,12 +1802,6 @@ export default function App() {
               onDeleteGlobalTimetable={handleDeleteGlobalTimetable}
               myClassNum={myClassNum} myTeacherName={myTeacherName}
               scheduledShutdownAt={scheduledShutdownAt} handleScheduleShutdown={handleScheduleShutdown} handleCancelShutdown={handleCancelShutdown}
-              myFishTank={myFishTank} myTankOwnerId={myTankOwnerId} fishTanks={fishTanks} fishPoints={fishPoints}
-              isFishDevMode={isFishDevMode}
-              handleBuyFish={handleBuyFish} handleFeedFishTank={handleFeedFishTank}
-              handleReleaseFish={handleReleaseFish} handleRenameFish={handleRenameFish}
-              handleBuyDecoration={handleBuyDecoration} handleRemoveDecoration={handleRemoveDecoration}
-              handleBuyTankBackground={handleBuyTankBackground} handleSetTankBackground={handleSetTankBackground}
             />
             </div>
           </div>
@@ -2104,24 +1818,6 @@ export default function App() {
           <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('tools') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('gradeConv')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('gradeConv') ? 'bg-rose-50 border-rose-200 text-rose-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="등급 환산 계산기"><Calculator className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('memo')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('memo') ? 'bg-yellow-50 border-yellow-200 text-yellow-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 메모장"><StickyNote className="w-5 h-5" /></button>
-          {isFishDevMode ? (
-            <button
-              type="button"
-              onClick={handleFishIconClick}
-              className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('fishtank') ? 'bg-sky-50 border-sky-200 text-sky-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}
-              title="나의 어항"
-            >
-              <Fish className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-400 rounded-full border border-white"></span>
-            </button>
-          ) : (
-            // 🔒 [개발 중] 보이지 않는 진입 영역 — Ctrl + Shift + 클릭으로만 열립니다.
-            <div
-              onClick={handleFishIconClick}
-              className="w-10 h-10 shrink-0"
-              aria-hidden="true"
-            />
-          )}
           <button type="button" onClick={() => toggleSidePanel('shutdown')} className={`mt-auto p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('shutdown') ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="예약 종료">
             <PowerOff className="w-5 h-5" />
             {scheduledShutdownAt && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>}
@@ -2144,19 +1840,6 @@ export default function App() {
           <button type="button" onClick={() => { setMobileView('salary'); setActiveSidePanel(['salary']); }} className={`p-2 rounded-lg ${mobileView === 'salary' ? 'text-amber-700' : 'text-gray-400'}`}><Wallet className="w-5 h-5" /></button>
           <button type="button" onClick={() => { setMobileView('gradeConv'); setActiveSidePanel(['gradeConv']); }} className={`p-2 rounded-lg ${mobileView === 'gradeConv' ? 'text-rose-700' : 'text-gray-400'}`}><Calculator className="w-5 h-5" /></button>
           <button type="button" onClick={() => { setMobileView('memo'); setActiveSidePanel(['memo']); }} className={`p-2 rounded-lg ${mobileView === 'memo' ? 'text-yellow-700' : 'text-gray-400'}`}><StickyNote className="w-5 h-5" /></button>
-          {isFishDevMode && (
-            <button
-              type="button"
-              onClick={(e) => {
-                if (e.ctrlKey && e.shiftKey) return toggleFishDevMode();
-                setMobileView('fishtank');
-                setActiveSidePanel(['fishtank']);
-              }}
-              className={`p-2 rounded-lg ${mobileView === 'fishtank' ? 'text-sky-700' : 'text-gray-400'}`}
-            >
-              <Fish className="w-5 h-5" />
-            </button>
-          )}
         </div>
       </div>
 
@@ -2743,25 +2426,6 @@ export default function App() {
               <p className="text-[10px] text-gray-400 leading-snug">연동한 구글 캘린더는 본인만 볼 수 있으며 다른 선생님과 공유되지 않습니다.</p>
             </div>
 
-            <div className="hidden md:block bg-purple-50/50 border border-purple-100 rounded-lg overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setIsGeminiSectionOpen(!isGeminiSectionOpen)}
-                className="w-full flex items-center justify-between p-3 text-left"
-              >
-                <p className="text-xs font-bold text-purple-900">Gemini AI 비서 API 키 설정</p>
-                <ChevronDown className={`w-4 h-4 text-purple-700 transition-transform ${isGeminiSectionOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {isGeminiSectionOpen && (
-                <div className="p-3.5 pt-0 space-y-3">
-                  <input type="password" placeholder="AI_STUDIO_API_KEY 입력" value={tempApiKey} onChange={(e) => setTempApiKey(e.target.value)} className="w-full p-2 border border-purple-200 rounded text-xs bg-white focus:outline-none" />
-                  <div className="flex gap-2">
-                    <button type="button" onClick={handleSaveApiKeyToLocal} className="flex-1 py-1.5 border border-purple-300 text-purple-700 text-xs font-bold rounded">내PC에만 임시등록</button>
-                    <button type="button" onClick={handleShareApiKeyToFirestore} className="flex-1 py-1.5 bg-purple-700 text-white text-xs font-bold rounded">전체교사 공유저장</button>
-                  </div>
-                </div>
-              )}
-            </div>
 
             <div className="bg-[#F7F7F5] p-3.5 rounded-lg border border-[#E9E9E6] space-y-3">
               <p className="text-xs font-bold text-gray-600">

@@ -2,6 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getFunctions } from "firebase/functions";
 
 // 🔑 [수정] 하드코딩된 값 대신 .env의 환경변수를 사용
 // .env 파일은 .gitignore에 포함되어 있어 GitHub에는 올라가지 않음
@@ -20,6 +21,7 @@ const app = initializeApp(firebaseConfig);
 // 2. 외부 컴포넌트에서 활용할 인증 및 DB 변수 내보내기
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const functions = getFunctions(app, "asia-northeast3"); // functions/index.js의 region과 반드시 일치해야 함
 
 // 3. 브라우저 로드 즉시 비밀번호 없이 익명 세션을 맺는 시그널 함수
 export const initAnonymousAuth = async () => {

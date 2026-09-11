@@ -1,0 +1,12 @@
+{
+  "name": "functions",
+  "description": "office-calendar Gemini API 프록시",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-functions": "^7.3.2"
+  },
+  "private": true
+}
