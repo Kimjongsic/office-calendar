@@ -89,56 +89,6 @@ function createWindow() {
   }
 }
 
-// 🔑 [신규] "내 수업" 미니 창 — 본체와 같은 URL을 #myclass 해시로 로드하고,
-//    partition을 'persist:main'으로 동일하게 맞춰 localStorage(본인 이름)를 공유함
-let miniWin = null;
-
-function createMyClassMiniWindow() {
-  if (miniWin && !miniWin.isDestroyed()) {
-    if (miniWin.isMinimized()) miniWin.restore();
-    miniWin.show();
-    miniWin.focus();
-    return;
-  }
-
-  const preloadPath = path.resolve(__dirname, 'preload.js');
-
-  miniWin = new BrowserWindow({
-    width: 360,
-    height: 620,
-    minWidth: 300,
-    minHeight: 360,
-    show: false,
-    frame: false,
-    hasShadow: true,
-    alwaysOnTop: true,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: preloadPath,
-      sandbox: true,
-      webviewTag: false,
-      allowRunningInsecureContent: false,
-      partition: 'persist:main'
-    },
-  });
-
-  const baseUrl = app.isPackaged
-    ? 'https://grade-calendar-89b7c.web.app'
-    : 'http://localhost:5173';
-  miniWin.loadURL(`${baseUrl}/#myclass`);
-
-  miniWin.once('ready-to-show', () => miniWin.show());
-  miniWin.on('closed', () => { miniWin = null; });
-}
-
-ipcMain.on('open-myclass-mini', () => createMyClassMiniWindow());
-ipcMain.on('myclass-mini-close', () => { if (miniWin && !miniWin.isDestroyed()) miniWin.close(); });
-ipcMain.on('myclass-mini-minimize', () => { if (miniWin && !miniWin.isDestroyed()) miniWin.minimize(); });
-ipcMain.on('myclass-mini-always-on-top', (event, flag) => {
-  if (miniWin && !miniWin.isDestroyed()) miniWin.setAlwaysOnTop(flag);
-});
-
 ipcMain.on('window-minimize', () => { if (win) win.minimize(); });
 
 // 🔑 setBounds 우회 없이 네이티브 API만 사용 → Windows 네이티브 상태와 항상 일치

@@ -17,11 +17,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setJbPassword: (password) => ipcRenderer.invoke('set-jb-password', password),
   disableJbLogin: () => ipcRenderer.invoke('disable-jb-login'),
   setAutoLaunch: (enable) => ipcRenderer.invoke('set-auto-launch', enable),
-  // 🔑 [신규] 내 수업 미니 창 제어 (본체 창과 분리된 별도 IPC — window-close 등을 쓰면 본체가 닫힘)
-  openMyClassMini: () => ipcRenderer.send('open-myclass-mini'),
-  miniClose: () => ipcRenderer.send('myclass-mini-close'),
-  miniMinimize: () => ipcRenderer.send('myclass-mini-minimize'),
-  miniSetAlwaysOnTop: (flag) => ipcRenderer.send('myclass-mini-always-on-top', flag),
   startUpdateDownload: () => ipcRenderer.send('start-update-download'),
   recheckForUpdates: () => ipcRenderer.send('recheck-for-updates'),
   quitAndInstallUpdate: () => ipcRenderer.send('quit-and-install-update'),

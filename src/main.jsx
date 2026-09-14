@@ -2,14 +2,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import MyClassMini from './components/MyClassMini.jsx'
-
-// 🔑 [신규] #myclass 해시로 열린 창은 "내 수업 미니 창"만 렌더 (본체 UI는 로드하지 않음)
-const isMyClassMini = window.location.hash.startsWith('#myclass');
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    {isMyClassMini ? <MyClassMini /> : <App />}
+    <App />
   </StrictMode>,
 )
 
