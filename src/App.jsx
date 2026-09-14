@@ -45,7 +45,8 @@ import {
   Calculator,
   Layers,
   StickyNote,
-  PowerOff
+  PowerOff,
+  ClipboardCheck
 } from 'lucide-react';
 
 import DashboardHeader from './components/DashboardHeader';
@@ -1811,6 +1812,10 @@ export default function App() {
         <div className="hidden md:flex w-14 bg-white border-l border-[#E9E9E6] flex-col items-center py-4 justify-start gap-5 z-40 shrink-0 window-no-drag shadow-xs">
           <button type="button" onClick={() => toggleSidePanel('meal')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('meal') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Utensils className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('timetable')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('timetable') ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><CalendarIcon className="w-5 h-5" /></button>
+          {/* 🔑 [신규] 내 수업 미니 창 열기 — Electron에서만 노출 */}
+          {window.electronAPI && (
+            <button type="button" onClick={() => window.electronAPI.openMyClassMini()} className="p-2.5 rounded-xl transition-all relative group border border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700" title="내 수업 (항상 위 미니 창)"><ClipboardCheck className="w-5 h-5" /></button>
+          )}
           <button type="button" onClick={() => toggleSidePanel('ai')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('ai') ? 'bg-purple-50 border-purple-200 text-purple-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Sparkles className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('bookmark') ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('salary') ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
