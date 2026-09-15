@@ -6,7 +6,7 @@ export default React.memo(function CalendarBoard({
   year, month, handlePrevMonth, handleToday, handleNextMonth, setIsCategoryManageOpen,
   firstDayIndex, prevDaysInMonth, daysInMonth, filteredEvents, categories, NOTION_PALETTES,
   extractHexColor, selectedDate, setSelectedDate, setNewEvent, setIsAddModalOpen,
-  setSelectedEvent, setIsDetailModalOpen, formatDateString, sidePanelCount,
+  setSelectedEvent, setIsDetailModalOpen, formatDateString, sidePanelCount, isSideWide,
   onEventOrderChange,   // 드래그 중 화면 미리보기 전용 (로컬 state만 갱신)
   onEventOrderCommit,   // 🔑 드래그가 끝났을 때 1회만 Firestore에 저장
   calendarList, currentCalendarId, isCalendarSwitcherOpen, setIsCalendarSwitcherOpen,
@@ -337,7 +337,7 @@ export default React.memo(function CalendarBoard({
 
   return (
     <section 
-      className={`${sidePanelCount === 2 ? 'xl:col-span-3' : sidePanelCount === 1 ? 'xl:col-span-4' : 'xl:col-span-5'} bg-white border border-[#E9E9E6] rounded-lg px-1 py-3 md:p-4 shadow-sm flex flex-col min-h-187.5 min-w-0 transition-all duration-300 relative`}
+      className={`${sidePanelCount === 0 ? 'xl:col-span-5' : isSideWide ? 'xl:col-span-3' : 'xl:col-span-4'} bg-white border border-[#E9E9E6] rounded-lg px-1 py-3 md:p-4 shadow-sm flex flex-col min-h-187.5 min-w-0 transition-all duration-300 relative`}
       style={{ fontFamily: '"Wanted Sans", sans-serif' }}
     >
       

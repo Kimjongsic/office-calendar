@@ -296,6 +296,17 @@ export default function App() {
   const [activeSidePanel, setActiveSidePanel] = useState([]); // 🔑 [수정] 여러 패널 동시에 열 수 있도록 배열로 변경
   const MAX_OPEN_SIDE_PANELS = 2;
 
+  // 🔑 [신규] 사이드 아코디언 배치 모드 ('double' = 2열 / 'single' = 1열). 드래그 앤 드랍으로 변경되고 다음 실행 때도 유지됨
+  const [sidePanelLayout, setSidePanelLayout] = useState(() => (
+    localStorage.getItem('side_panel_layout') === 'single' ? 'single' : 'double'
+  ));
+  useEffect(() => {
+    localStorage.setItem('side_panel_layout', sidePanelLayout);
+  }, [sidePanelLayout]);
+
+  // 🔑 패널이 2개 열렸고 2열 모드일 때만 사이드바가 두 칸 폭으로 넓어짐
+  const isSideWide = activeSidePanel.length > 1 && sidePanelLayout === 'double';
+
 
   // 🌟 [추가 상태] 실시간으로 공유될 전역 교사/학급 시간표 통합 매트릭스 원격 상태 선언
   const [customTimetables, setCustomTimetables] = useState({ classes: {}, teachers: {} });
@@ -1749,7 +1760,7 @@ export default function App() {
               daysInMonth={daysInMonth} filteredEvents={filteredEvents} categories={displayCategories} NOTION_PALETTES={NOTION_PALETTES}
               extractHexColor={extractHexColor} selectedDate={selectedDate} setNewEvent={setNewEvent}
               setIsAddModalOpen={setIsAddModalOpen} setSelectedEvent={setSelectedEvent} setIsDetailModalOpen={setIsDetailModalOpen}
-              formatDateString={formatDateString} sidePanelCount={activeSidePanel.length}
+              formatDateString={formatDateString} sidePanelCount={activeSidePanel.length} isSideWide={isSideWide}
               onEventOrderChange={handleEventOrderPreview}
               onEventOrderCommit={handleEventOrderCommit}
               setSelectedDate={(date) => { setSelectedDate(date); setIsMobileDayPopupOpen(true); }}
@@ -1769,10 +1780,11 @@ export default function App() {
             </div>
 
             {/* 🔑 사이드바만 스크롤 시 화면에 고정되도록 sticky 적용 */}
-            <div className={`md:sticky md:top-3.5 self-start min-w-0 ${activeSidePanel.length === 0 ? 'xl:hidden' : activeSidePanel.length === 2 ? 'xl:col-span-2' : 'xl:col-span-1'} ${mobileView === 'calendar' ? 'hidden md:block' : 'block'}`}>
+            <div className={`md:sticky md:top-3.5 self-start min-w-0 ${activeSidePanel.length === 0 ? 'xl:hidden' : isSideWide ? 'xl:col-span-2' : 'xl:col-span-1'} ${mobileView === 'calendar' ? 'hidden md:block' : 'block'}`}>
             {/* 🌟 [수정 섹션] 전교 교사용 실시간 공유 상태(customTimetables) 및 트리거 주입 연동 */}
             <SideAccordionPanel 
               activeSidePanel={activeSidePanel} setActiveSidePanel={setActiveSidePanel} closeSidePanel={closeSidePanel} selectedDate={selectedDate}
+              sidePanelLayout={sidePanelLayout} setSidePanelLayout={setSidePanelLayout}
               usefulLinks={usefulLinks} isLinkFormOpen={isLinkFormOpen} setIsLinkFormOpen={setIsLinkFormOpen}
               linkFormTitle={linkFormTitle} setLinkFormTitle={setLinkFormTitle}
               linkFormDesc={linkFormDesc} setLinkFormDesc={setLinkFormDesc}

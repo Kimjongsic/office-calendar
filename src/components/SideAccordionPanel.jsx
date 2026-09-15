@@ -1,6 +1,6 @@
 // src/components/SideAccordionPanel.jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, ChevronUp, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Settings2, Trash2, Link2, Calculator, StickyNote, Menu, Check, PowerOff, Camera } from 'lucide-react';
+import { Utensils, Sparkles, Bookmark, X, Plus, Users, User, Calendar, Download, Upload, Info, ChevronDown, ChevronUp, RefreshCw, Clock, MapPin, CalendarIcon, Edit2, Wallet, Settings2, Trash2, Link2, Calculator, StickyNote, Menu, Check, PowerOff, Camera, GripHorizontal } from 'lucide-react';
 
 // 🔑 2026년 유치원·초등학교·중학교·고등학교 교원 봉급표 (월지급액, 단위: 원)
 // 출처: 인사혁신처 고시. 매년 갱신되니 새 봉급표 발표 시 이 배열만 교체하면 됩니다.
@@ -114,7 +114,15 @@ export default React.memo(function SideAccordionPanel({
   handleDeleteMemo, handleStartEditMemo, handleStartNewMemo, handleFinishEditMemo, handleReorderMemos, handleToggleMemoShare,
   scheduledShutdownAt, handleScheduleShutdown, handleCancelShutdown,
   mealPhotos, handleUploadMealPhoto, handleDeleteMealPhoto,
+  sidePanelLayout = 'double', setSidePanelLayout = () => {}
 }) {
+
+  // 🔑 [신규] 패널 드래그 앤 드랍용 ref — 훅은 조기 return 위에서만 선언해야 하므로 여기에 둠
+  const dragPanelRef = useRef(null);       // 지금 끌고 있는 패널 이름
+  const dropTargetRef = useRef(null);      // { target: '패널이름', mode: 'bottom' | 'right' }
+  const panelContainerRef = useRef(null);
+  const dropIndicatorRef = useRef(null);
+  const draggingCardElRef = useRef(null);  // 드래그 중 흐리게 처리한 원본 카드
 
   // 시간표 제어 전용 상태 그룹
   const [timetableTab, setTimetableTab] = useState('class'); // 'class' 또는 'teacher'
@@ -757,23 +765,169 @@ export default React.memo(function SideAccordionPanel({
     return numA - numB;
   });
   const teacherList = Object.keys(customTimetables.teachers || {}).sort((a, b) => a.localeCompare(b, 'ko')); // 🔑 가나다순 정렬
+  // 🔑 [신규] 노션식 드래그 앤 드랍 — 다른 패널의 "아래"에 놓으면 한 열, "오른쪽 가장자리"에 놓으면 두 열
+  //    드래그 중에는 리렌더가 일어나지 않도록 상태 대신 ref + DOM 직접 조작으로 삽입선을 그림
+  //    (ref 4개는 파일 상단 훅 영역에서 선언됨)
+
+  // 컨테이너 안의 패널 카드(aside)를 [{ el, name }] 형태로 수집 (order 값 = activeSidePanel 인덱스)
+  const getPanelCards = () => {
+    const container = panelContainerRef.current;
+    if (!container) return [];
+    return [...container.querySelectorAll(':scope > aside')]
+      .map((el) => ({ el, name: activeSidePanel[Number(el.style.order)] }))
+      .filter((c) => c.name);
+  };
+
+  const hideDropIndicator = () => {
+    dropTargetRef.current = null;
+    if (dropIndicatorRef.current) dropIndicatorRef.current.style.opacity = '0';
+  };
+
+  // 🔑 드래그가 끝나면(또는 놓으면) 흐리게 만든 원본 카드를 원래대로 되돌림
+  const restoreDraggingCard = () => {
+    const card = draggingCardElRef.current;
+    if (!card) return;
+    card.style.opacity = '';
+    card.style.filter = '';
+    card.style.transition = '';
+    draggingCardElRef.current = null;
+  };
+
+  const handlePanelDragOver = (e) => {
+    const dragging = dragPanelRef.current;
+    if (!dragging) return; // 메모 카드 드래그 등 다른 드래그는 무시
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    const container = panelContainerRef.current;
+    const indicator = dropIndicatorRef.current;
+    if (!container || !indicator) return;
+
+    const cards = getPanelCards().filter((c) => c.name !== dragging);
+    if (cards.length === 0) { hideDropIndicator(); return; }
+
+    // 포인터가 올라가 있는 카드, 없으면 중심이 가장 가까운 카드
+    let hit = cards.find(({ el }) => {
+      const r = el.getBoundingClientRect();
+      return e.clientY >= r.top && e.clientY <= r.bottom && e.clientX >= r.left && e.clientX <= r.right;
+    });
+    if (!hit) {
+      hit = cards.reduce((best, card) => {
+        const r = card.el.getBoundingClientRect();
+        const dist = Math.abs((r.top + r.bottom) / 2 - e.clientY) + Math.abs((r.left + r.right) / 2 - e.clientX);
+        return !best || dist < best.dist ? { ...card, dist } : best;
+      }, null);
+    }
+    if (!hit) { hideDropIndicator(); return; }
+
+    const rect = hit.el.getBoundingClientRect();
+    const box = container.getBoundingClientRect();
+
+    // 🔑 네 변까지의 거리를 카드 크기로 정규화해서 가장 가까운 변을 고름 (좌/우 = 2열, 상/하 = 1열)
+    //    가로 판정이 너무 쉽게 먹히지 않도록 좌우 거리에 약간의 가중치(1.25)를 둠
+    const distances = [
+      { mode: 'left',   d: ((e.clientX - rect.left) / rect.width) * 1.25 },
+      { mode: 'right',  d: ((rect.right - e.clientX) / rect.width) * 1.25 },
+      { mode: 'top',    d: (e.clientY - rect.top) / rect.height },
+      { mode: 'bottom', d: (rect.bottom - e.clientY) / rect.height },
+    ];
+    const mode = distances.reduce((a, b) => (b.d < a.d ? b : a)).mode;
+
+    dropTargetRef.current = { target: hit.name, mode };
+
+    if (mode === 'left' || mode === 'right') {
+      indicator.style.left = `${(mode === 'left' ? rect.left : rect.right - 4) - box.left}px`;
+      indicator.style.top = `${rect.top - box.top}px`;
+      indicator.style.width = '4px';
+      indicator.style.height = `${rect.height}px`;
+    } else {
+      indicator.style.left = `${rect.left - box.left}px`;
+      indicator.style.top = `${(mode === 'top' ? rect.top - 5 : rect.bottom + 1) - box.top}px`;
+      indicator.style.width = `${rect.width}px`;
+      indicator.style.height = '4px';
+    }
+    indicator.style.opacity = '1';
+  };
+
+  const handlePanelDragLeave = (e) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return; // 내부 이동은 무시
+    hideDropIndicator();
+  };
+
+  const handlePanelDrop = (e) => {
+    const dragging = dragPanelRef.current;
+    const info = dropTargetRef.current;
+    hideDropIndicator();
+    restoreDraggingCard();
+    dragPanelRef.current = null;
+    if (!dragging || !info || info.target === dragging) return;
+    e.preventDefault();
+
+    // 놓은 위치가 곧 배치 모드 — 좌/우에 놓으면 두 열, 위/아래에 놓으면 한 열 (다음부터 이 배치로 열림)
+    const isSide = info.mode === 'left' || info.mode === 'right';
+    setSidePanelLayout(isSide ? 'double' : 'single');
+
+    // 기준 패널의 앞(left/top) 또는 뒤(right/bottom)로 순서 이동 (각 aside의 order 값이 이 배열 순서를 따름)
+    const insertBefore = info.mode === 'left' || info.mode === 'top';
+    setActiveSidePanel((prev) => {
+      const next = prev.filter((p) => p !== dragging);
+      const idx = next.indexOf(info.target);
+      if (idx === -1) return prev;
+      next.splice(insertBefore ? idx : idx + 1, 0, dragging);
+      return next;
+    });
+  };
+
   // 🔑 [신규] 각 패널 카드마다 쓰이는 공통 닫기 버튼
   const PanelCloseButton = ({ panelName }) => (
-    <button 
-      onClick={() => closeSidePanel(panelName)} 
-      className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-all z-10"
-    >
-      <X className="w-4 h-4" />
-    </button>
+    <>
+      {/* 🔑 [신규] 이 손잡이를 잡아 다른 패널 아래(1열) 또는 오른쪽 가장자리(2열)에 놓으면 배치가 바뀜 */}
+      <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', panelName);
+          dragPanelRef.current = panelName;
+          // 🔑 드래그 이미지가 캡처된 다음 프레임에 원본을 흐리게 만들어 "잔상"처럼 남김
+          const card = e.currentTarget.closest('aside');
+          if (card) {
+            draggingCardElRef.current = card;
+            requestAnimationFrame(() => {
+              card.style.opacity = '0.4';
+              card.style.filter = 'grayscale(0.35)';
+              card.style.transition = 'opacity 150ms ease, filter 150ms ease';
+            });
+          }
+        }}
+        onDragEnd={() => { dragPanelRef.current = null; restoreDraggingCard(); hideDropIndicator(); }}
+        title="드래그: 다른 패널 아래에 놓으면 한 열, 오른쪽 끝에 놓으면 두 열"
+        className="absolute top-0.5 left-1/2 -translate-x-1/2 px-5 py-0.5 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing z-10"
+      >
+        <GripHorizontal className="w-4 h-4" />
+      </div>
+      <button 
+        onClick={() => closeSidePanel(panelName)} 
+        className="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-all z-10"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </>
   );
 
   const hasClasses = classList.length > 0;
   const hasTeachers = teacherList.length > 0;
 
+  // 🔑 [신규] 2열 모드이고 패널이 2개일 때만 가로로 나란히, 그 외에는 한 열로 쌓임
+  const isTwoCol = sidePanelLayout === 'double' && activeSidePanel.length > 1;
+
   return (
     <div
-      className="w-full min-w-0 grid gap-1.5"
-      style={{ gridTemplateColumns: `repeat(${activeSidePanel.length}, minmax(0, 1fr))` }}
+      ref={panelContainerRef}
+      onDragOver={handlePanelDragOver}
+      onDragLeave={handlePanelDragLeave}
+      onDrop={handlePanelDrop}
+      className="relative w-full min-w-0 grid gap-1.5 items-start"
+      style={{ gridTemplateColumns: isTwoCol ? `repeat(${activeSidePanel.length}, minmax(0, 1fr))` : '1fr' }}
     >
 
         {activeSidePanel.includes('timetable') && (
@@ -1912,6 +2066,13 @@ export default React.memo(function SideAccordionPanel({
             </div>
           </aside>
         )}
+
+        {/* 🔑 [신규] 드래그 중 "여기에 놓입니다"를 보여주는 파란 삽입선 (노션 스타일) */}
+        <div
+          ref={dropIndicatorRef}
+          className="pointer-events-none absolute z-50 rounded-full bg-blue-400/45 blur-[1px] opacity-0 transition-opacity duration-100"
+          style={{ left: 0, top: 0, width: 0, height: 0 }}
+        />
 
     {/* 🔑 [신규] 급식 사진 확대보기 라이트박스 */}
       {zoomedMealPhoto && (

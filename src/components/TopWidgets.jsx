@@ -41,7 +41,7 @@ export default React.memo(function TopWidgets({
       style={{ fontFamily: '"Wanted Sans", sans-serif' }}
     >
       {/* 오늘의 한마디 패널 (3/5) */}
-      <div className="xl:col-span-3 bg-white border border-[#EAE4F2] shadow-xs rounded-xl px-4 py-3 flex items-center justify-between min-w-0">
+      <div className="xl:col-span-3 bg-white border border-[#EAE4F2] shadow-xs rounded-xl px-4 py-2 flex items-center justify-between min-w-0">
         <div className="flex items-center gap-3 overflow-hidden flex-1">
           <span className="text-xs font-bold text-[#461146] flex items-center gap-1.5 shrink-0 bg-[#EAE4F2] px-2.5 py-1 rounded-full">
             <MessageSquare className="w-3.5 h-3.5" /> 오늘의 한마디
@@ -70,7 +70,7 @@ export default React.memo(function TopWidgets({
       </div>
 
       {/* 디데이 대시보드 (1/5) */}
-      <div className="xl:col-span-1 bg-white border border-rose-200 shadow-xs rounded-xl px-4 py-3 flex items-center justify-between min-w-0">
+      <div className="xl:col-span-1 bg-white border border-rose-200 shadow-xs rounded-xl px-4 py-2 flex items-center justify-between min-w-0">
         <div className="flex items-center gap-3 overflow-hidden">
           <span className="p-2 bg-rose-50 rounded-lg text-rose-600 shrink-0"><Pin className="w-3.5 h-3.5" /></span>
           <div className="text-left overflow-hidden">
@@ -91,7 +91,7 @@ export default React.memo(function TopWidgets({
       </div>
 
       {/* 시계 대시보드 위젯 (1/5) */}
-      <div className="xl:col-span-1 bg-white border border-blue-200 shadow-xs rounded-xl px-4 py-3 flex items-center justify-between min-w-0">
+      <div className="xl:col-span-1 bg-white border border-blue-200 shadow-xs rounded-xl px-4 py-2 flex items-center justify-between min-w-0">
         <div className="flex items-center gap-3 overflow-hidden flex-1 w-full">
           <span className="p-2 bg-blue-50 rounded-lg text-blue-600 shrink-0">
             <Clock className="w-3.5 h-3.5" />
