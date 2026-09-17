@@ -1,5 +1,5 @@
 // src/components/StudentGradesDashboard.jsx
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
   Line, ComposedChart, XAxis, YAxis, CartesianGrid,
@@ -503,6 +503,7 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
   const [isIncompatible, setIsIncompatible] = useState(false); // 🔑 저장된 데이터가 예전 버전 형식이라 못 불러올 때
   const [chartsReady, setChartsReady] = useState(false); // 🔑 모달이 완전히 자리잡은 뒤에만 차트를 그려서 깜빡임 방지
   const [isStudentChosen, setIsStudentChosen] = useState(false); // 🔑 [신규] 모달을 열 때마다 초기화 — 명시적으로 학생을 선택해야만 정보가 보임
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false); // 🔑 [신규] 성적 데이터 초기화 확인 단계 표시 여부
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -545,7 +546,8 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
   };
 
   // 🔑 [수정] window.storage(아티팩트 전용 API) 대신 localStorage 사용 — 이 PC에만 저장
-  useEffect(() => {
+  // 🔑 [수정] useLayoutEffect로 변경 — 첫 화면을 그리기 전에 불러와서 업로드 창이 찰나로 보이는 깜빡임 제거
+  useLayoutEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -590,6 +592,9 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
     setClassNum(null);
     setStudentNum(null);
     setIsIncompatible(false);
+    setIsStudentChosen(false); // 🔑 [신규] 새 파일을 올린 뒤에도 학생 선택 화면부터 다시 거치도록
+    setIsResetConfirmOpen(false);
+    setUploadError("");
   };
 
   // 🔑 [신규] Electron의 실제 렌더러로 인쇄 → PDF 생성 (oklch 등 최신 CSS도 100% 정상 처리됨)
@@ -866,6 +871,37 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
             >
               선택한 학생 정보 보기
             </button>
+
+            {/* 🔑 [신규] 성적 데이터 초기화 — 한 번 더 확인한 뒤 삭제하고 업로드 화면으로 이동 */}
+            {!isResetConfirmOpen ? (
+              <button
+                onClick={() => setIsResetConfirmOpen(true)}
+                style={{ ...btnStyle, width: "100%", marginTop: "10px", padding: "10px", color: "#791F1F", border: "1px solid #E8C4C4", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+              >
+                <Trash2 size={15} />
+                성적 데이터 초기화
+              </button>
+            ) : (
+              <div style={{ marginTop: "10px", background: "#FCEBEB", border: "1px solid #E8C4C4", borderRadius: "10px", padding: "12px" }}>
+                <p style={{ fontSize: "12px", color: "#791F1F", margin: "0 0 10px", lineHeight: 1.5 }}>
+                  이 컴퓨터에 저장된 성적 데이터가 모두 삭제돼요.<br />삭제 후 새 엑셀 파일을 업로드할 수 있어요.
+                </p>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    onClick={() => setIsResetConfirmOpen(false)}
+                    style={{ ...btnStyle, flex: 1, padding: "8px" }}
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={clearStorage}
+                    style={{ ...btnStyle, flex: 1, padding: "8px", background: "#791F1F", color: "#fff", border: "1px solid #791F1F" }}
+                  >
+                    삭제
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1367,7 +1403,7 @@ function StudentGradesDashboardInner({ onClose, myClassNum }) {
                         <Bar yAxisId="score" dataKey="score" fill={`${SUBJECT_COLORS[subj]}55`} radius={[3, 3, 0, 0]} barSize={16} name="표준점수" isAnimationActive={false}>
                           <LabelList dataKey="score" position="top" style={{ fontSize: 10, fill: "#9AA0A8" }} />
                         </Bar>
-                        <Line yAxisId="grade" type="monotone" dataKey="grade" stroke={SUBJECT_COLORS[subj]} strokeWidth={2} dot={{ r: 3, fill: SUBJECT_COLORS[subj] }} name="등급" connectNulls isAnimationActive={false}>
+                        <Line yAxisId="grade" type="linear" dataKey="grade" stroke={SUBJECT_COLORS[subj]} strokeWidth={2} dot={{ r: 3, fill: SUBJECT_COLORS[subj] }} name="등급" connectNulls isAnimationActive={false}>
                           <LabelList dataKey="grade" position="bottom" formatter={(v) => (v ? `${v}등급` : "")} style={{ fontSize: 10, fill: SUBJECT_COLORS[subj], fontWeight: 700 }} />
                         </Line>
                       </ComposedChart>
