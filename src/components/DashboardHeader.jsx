@@ -1,6 +1,20 @@
 // src/components/DashboardHeader.jsx
 import React, { useState } from 'react';
-import { Calendar as CalendarIcon, CalendarOff, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff, MessageCircle, Settings } from 'lucide-react';
+import { Calendar as CalendarIcon, CalendarOff, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff, Settings } from 'lucide-react';
+import SalaryTicker from './SalaryTicker';
+
+// 🔑 JB메신저 아이콘 (lucide 규격: 24x24, currentColor → 버튼 글자색을 따라감)
+const JbMessengerIcon = ({ className = '' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M16.79 20.66 C13.37 22.62 8.61 22.48 5.39 20.10 A9.97 9.97 0 1 1 20.18 17.63 C19.68 19.54 20.52 21.08 21.94 21.83 C19.82 21.92 17.85 21.78 16.79 20.66 Z" strokeWidth="2" />
+    <g strokeWidth="1.5">
+      <path d="M9.68 8.41 V5.31 L17.21 6.87 V15.84 Q17.21 16.17 16.87 16.17 H14.07" />
+      <path d="M6.93 9.17 L17.21 6.87" />
+      <path d="M6.93 9.17 L13.93 10.71 V17.10 Q13.93 17.43 13.60 17.43 H6.93 Z" />
+      <path d="M11.41 10.24 V13.79 L12.20 15.00 Q12.39 15.75 11.47 15.95 V17.43" />
+    </g>
+  </svg>
+);
 
 export default function DashboardHeader({
   syncStatus, isAlwaysOnTop, isMoveLocked, opacityValue, isOpacityDropdownOpen,
@@ -89,6 +103,9 @@ export default function DashboardHeader({
         className="hidden md:flex items-center gap-1 shrink-0 relative z-50"
         style={{ WebkitAppRegion: 'no-drag', appRegion: 'no-drag' }}
       >
+        {/* 🔑 [신규] 오늘도 적립 중 — 펼치기/접기 가능, 상태는 이 PC에 저장 */}
+        <SalaryTicker />
+
         {/* 🔑 [신규] 컴퓨터 시작 시 자동 실행 버튼 */}
         <button 
           type="button" 
@@ -107,7 +124,7 @@ export default function DashboardHeader({
             className={`p-1.5 rounded-md transition-colors cursor-pointer ${isJbLoginEnabled ? 'bg-emerald-50 text-emerald-600 font-bold' : 'text-gray-500 hover:bg-gray-100'}`}
             title={isJbLoginEnabled ? "JB메신저 자동로그인: 켜짐" : "JB메신저 자동로그인: 꺼짐"}
           >
-            <MessageCircle className="w-4 h-4" />
+            <JbMessengerIcon className="w-4 h-4" />
           </button>
           {isJbPopoverOpen && (
             <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-[#E9E9E6] rounded-lg shadow-xl z-50 p-3 space-y-2">

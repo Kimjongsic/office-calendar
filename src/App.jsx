@@ -38,7 +38,6 @@ import {
   Eye,
   Utensils,
   Bookmark,
-  Wallet,
   BarChart3,
   Link2,
   Edit2,
@@ -1825,7 +1824,6 @@ export default function App() {
           <button type="button" onClick={() => toggleSidePanel('timetable')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('timetable') ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><CalendarIcon className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('ai')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('ai') ? 'bg-purple-50 border-purple-200 text-purple-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Sparkles className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('bookmark')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('bookmark') ? 'bg-blue-50 border-blue-200 text-blue-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Bookmark className="w-5 h-5" /></button>
-          <button type="button" onClick={() => toggleSidePanel('salary')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('salary') ? 'bg-amber-50 border-amber-200 text-amber-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`}><Wallet className="w-5 h-5" /></button>
           <button type="button" onClick={() => setIsGradesDashboardOpen(true)} className={`p-2.5 rounded-xl transition-all relative group border ${isGradesDashboardOpen ? 'bg-slate-100 border-slate-300 text-slate-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="학생 성적 대시보드"><BarChart3 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('tools')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('tools') ? 'bg-emerald-50 border-emerald-200 text-emerald-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="공유 도구함"><Link2 className="w-5 h-5" /></button>
           <button type="button" onClick={() => toggleSidePanel('gradeConv')} className={`p-2.5 rounded-xl transition-all relative group border ${activeSidePanel.includes('gradeConv') ? 'bg-rose-50 border-rose-200 text-rose-700 scale-105 shadow-xs' : 'border-transparent text-gray-400 hover:bg-[#F7F7F5] hover:text-gray-700'}`} title="등급 환산 계산기"><Calculator className="w-5 h-5" /></button>
@@ -1849,7 +1847,6 @@ export default function App() {
           <button type="button" onClick={() => { setMobileView('meal'); setActiveSidePanel(['meal']); }} className={`p-2 rounded-lg ${mobileView === 'meal' ? 'text-emerald-700' : 'text-gray-400'}`}><Utensils className="w-5 h-5" /></button>
           <button type="button" onClick={() => { setMobileView('timetable'); setActiveSidePanel(['timetable']); }} className={`p-2 rounded-lg ${mobileView === 'timetable' ? 'text-blue-700' : 'text-gray-400'}`}><CalendarIcon className="w-5 h-5" /></button>
           <button type="button" onClick={() => { setMobileView('bookmark'); setActiveSidePanel(['bookmark']); }} className={`p-2 rounded-lg ${mobileView === 'bookmark' ? 'text-blue-700' : 'text-gray-400'}`}><Bookmark className="w-5 h-5" /></button>
-          <button type="button" onClick={() => { setMobileView('salary'); setActiveSidePanel(['salary']); }} className={`p-2 rounded-lg ${mobileView === 'salary' ? 'text-amber-700' : 'text-gray-400'}`}><Wallet className="w-5 h-5" /></button>
           <button type="button" onClick={() => { setMobileView('gradeConv'); setActiveSidePanel(['gradeConv']); }} className={`p-2 rounded-lg ${mobileView === 'gradeConv' ? 'text-rose-700' : 'text-gray-400'}`}><Calculator className="w-5 h-5" /></button>
           <button type="button" onClick={() => { setMobileView('memo'); setActiveSidePanel(['memo']); }} className={`p-2 rounded-lg ${mobileView === 'memo' ? 'text-yellow-700' : 'text-gray-400'}`}><StickyNote className="w-5 h-5" /></button>
         </div>
