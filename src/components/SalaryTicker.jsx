@@ -92,17 +92,26 @@ const calcSalaryStats = (grade, now) => {
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  // 오늘 진행 막대용 (0~8시간)
+  // 오늘 진행 막대용 (0~8시간) + 현재 상태
+  // status: 'before'(출근 전) | 'working'(근무 중) | 'done'(퇴근 후) | 'weekend'(주말)
   const dow = now.getDay();
   let todayElapsed = 0;
+  let status = 'weekend';
   if (dow >= 1 && dow <= 5) {
     const workStart = new Date(now); workStart.setHours(8, 30, 0, 0);
     const workEnd = new Date(now); workEnd.setHours(16, 30, 0, 0);
-    if (now >= workEnd) todayElapsed = 8;
-    else if (now > workStart) todayElapsed = (now - workStart) / (1000 * 60 * 60);
+    if (now >= workEnd) {
+      todayElapsed = 8;
+      status = 'done';
+    } else if (now > workStart) {
+      todayElapsed = (now - workStart) / (1000 * 60 * 60);
+      status = 'working';
+    } else {
+      status = 'before';
+    }
   }
 
-  return { earned: hourlyRate * elapsedWorkHours, todayElapsed };
+  return { earned: hourlyRate * elapsedWorkHours, todayElapsed, status };
 };
 
 export default function SalaryTicker() {
@@ -202,9 +211,17 @@ export default function SalaryTicker() {
         <Wallet className="w-3.5 h-3.5 text-amber-600 shrink-0" />
         <span className="hidden xl:inline text-amber-700 font-semibold whitespace-nowrap">오늘도 적립 중</span>
         {stats ? (
-          <span className="text-sm font-black text-amber-700 tabular-nums whitespace-nowrap">
-            <FlashNumber value={displayedEarned} />원
-          </span>
+          <>
+            <span className="text-sm font-black text-amber-700 tabular-nums whitespace-nowrap">
+              <FlashNumber value={displayedEarned} />원
+            </span>
+            {/* 🔑 근무시간 밖에는 금액이 멈춰 있는 이유를 알려주는 상태 배지 */}
+            {stats.status !== 'working' && (
+              <span className="text-[10px] font-semibold text-amber-600 bg-white/70 border border-amber-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                {stats.status === 'before' ? '08:30부터 적립' : stats.status === 'done' ? '오늘 적립 완료' : '주말 휴식'}
+              </span>
+            )}
+          </>
         ) : (
           <button
             type="button"
