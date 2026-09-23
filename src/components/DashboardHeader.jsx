@@ -1,7 +1,8 @@
 // src/components/DashboardHeader.jsx
 import React, { useState } from 'react';
-import { Calendar as CalendarIcon, CalendarOff, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff, Settings } from 'lucide-react';
+import { Calendar as CalendarIcon, CalendarOff, Pin, Lock, Unlock, Eye, Minus, Square, X, Bell, Download, RefreshCw, PartyPopper, Power, PowerOff, Settings, Gamepad2 } from 'lucide-react';
 import SalaryTicker from './SalaryTicker';
+import HeaderGameBar from './HeaderGameBar';
 
 // 🔑 JB메신저 아이콘 (lucide 규격: 24x24, currentColor → 버튼 글자색을 따라감)
 const JbMessengerIcon = ({ className = '' }) => (
@@ -26,6 +27,7 @@ export default function DashboardHeader({
 }) {
   const [isJbPopoverOpen, setIsJbPopoverOpen] = useState(false); // 🔑 [신규] JB메신저 비밀번호 입력 팝업
   const [jbPasswordInput, setJbPasswordInput] = useState('');
+  const [isGameOpen, setIsGameOpen] = useState(false); // 🔑 [신규] 헤더 미니게임 펼침 여부 (앱 켤 때마다 접힌 상태로 시작)
   const hasUpdateAvailable = updateInfo.status === 'available' || updateInfo.status === 'downloading' || updateInfo.status === 'downloaded';
   // 🔑 electronAPI 직접 호출 제거: IPC 호출은 App.jsx의 handleX 함수들이 이미 담당하고 있어서
   // 여기서 또 호출하면 클릭 한 번에 IPC가 두 번 전송되어(최대화→즉시 복원) 버튼이
@@ -87,6 +89,25 @@ export default function DashboardHeader({
         })()}
       </div>
 
+      {/* 🔑 [수정] 가운데 미니게임 영역 — 켜졌을 때만 표시 (여는 버튼은 우측 지갑 아이콘 왼쪽)
+          꺼져 있을 땐 아예 렌더링하지 않아 가운데 공간 전체가 창 드래그 영역으로 남음 */}
+      {isGameOpen && (
+        <div
+          className="hidden md:flex flex-1 min-w-0 max-w-xl mx-4 items-center justify-center gap-1"
+          style={{ WebkitAppRegion: 'no-drag', appRegion: 'no-drag' }}
+        >
+          <HeaderGameBar isOnline={syncStatus === 'connected'} />
+          <button
+            type="button"
+            onClick={() => setIsGameOpen(false)}
+            className="p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 rounded-md cursor-pointer shrink-0"
+            title="게임 접기"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* 🔑 [신규] 모바일 전용 설정 버튼 — 데스크톱은 캘린더 헤더에 이미 설정 버튼이 있으므로 모바일에서만 표시 */}
       <button
         type="button"
@@ -103,6 +124,16 @@ export default function DashboardHeader({
         className="hidden md:flex items-center gap-1 shrink-0 relative z-50"
         style={{ WebkitAppRegion: 'no-drag', appRegion: 'no-drag' }}
       >
+        {/* 🔑 [신규] 미니게임 켜기/끄기 — 켜면 헤더 가운데에 게임 표시 */}
+        <button
+          type="button"
+          onClick={() => setIsGameOpen((prev) => !prev)}
+          className={`p-1.5 rounded-md transition-colors cursor-pointer ${isGameOpen ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
+          title={isGameOpen ? '미니게임 끄기' : '미니게임 켜기'}
+        >
+          <Gamepad2 className="w-4 h-4" />
+        </button>
+
         {/* 🔑 [신규] 오늘도 적립 중 — 펼치기/접기 가능, 상태는 이 PC에 저장 */}
         <SalaryTicker />
 
